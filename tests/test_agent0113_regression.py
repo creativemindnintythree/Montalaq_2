@@ -1,3 +1,5 @@
+# tests/test_agent0113_regression.py
+import io
 import logging
 import numpy as np
 import pytest
@@ -49,21 +51,33 @@ def _patch_model(monkeypatch, model):
 def _patch_zero_vec_builders(monkeypatch, n=4):
     # Force the runner's vector builders to return deterministic zero vectors
     monkeypatch.setattr(runner, "to_vector_for_ta", lambda ta: [0.0] * n, raising=True)
-    monkeypatch.setattr(runner, "to_vector_by_feature_names",
-                        lambda ta, names: [0.0] * len(names), raising=True)
+    monkeypatch.setattr(
+        runner,
+        "to_vector_by_feature_names",
+        lambda ta, names: [0.0] * len(names),
+        raising=True,
+    )
     monkeypatch.setattr(runner, "log_unknowns_once", lambda *a, **k: None, raising=True)
 
 
 # ------------------ Tests ------------------ #
 
 @pytest.mark.django_db
-def test_no_trades_recent(capsys):
+def test_no_trades_recent():
     """Batch runner should log a warning but not crash when no trades exist."""
-    processed = batch_run_recent(limit=3, minutes=15)
-    assert processed == 0
-    # Our logger writes to stderr (own handler, propagate=False), so use capsys
-    err = capsys.readouterr().err.lower()
-    assert "no trades found" in err
+    logger = logging.getLogger("backend.tasks_ml_batch")
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setLevel(logging.WARNING)
+    logger.addHandler(handler)
+    try:
+        processed = batch_run_recent(limit=3, minutes=15)
+        assert processed == 0
+        handler.flush()
+        contents = stream.getvalue().lower()
+        assert "no trades found" in contents
+    finally:
+        logger.removeHandler(handler)
 
 
 @pytest.mark.django_db
@@ -113,7 +127,7 @@ def test_weight_default_used_when_no_db_entry():
     MlPreference.objects.filter(key="ml_weight").delete()
     w = ml_cfg.get_ml_weight()
     assert isinstance(w, float)
-    # After clamping, default is guaranteed within [0,1]
+    # After clamping/default, guaranteed within [0,1]
     assert 0.0 <= w <= 1.0
     assert w == ml_cfg.DEFAULT_ML_WEIGHT
 
