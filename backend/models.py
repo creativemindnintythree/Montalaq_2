@@ -72,7 +72,6 @@ class TradeAnalysis(models.Model):
     )
 
     # Align TA to the market bar time (Agent 011.2)
-    # NOTE: backfill existing rows from mdf.market_data.timestamp
     timestamp = models.DateTimeField(db_index=True, null=True, blank=True)
 
     # --------------------
@@ -96,22 +95,19 @@ class TradeAnalysis(models.Model):
     # --------------------
     # ML outputs (legacy + new Agent 011.2 fields)
     # --------------------
-    # Legacy ML (baseline / earlier migrations)
     ml_signal = models.CharField(max_length=20, null=True, blank=True)
     ml_prob_long = models.FloatField(null=True, blank=True)
     ml_prob_short = models.FloatField(null=True, blank=True)
     ml_prob_no_trade = models.FloatField(null=True, blank=True)
     ml_expected_rr = models.FloatField(null=True, blank=True)
     ml_model_version = models.CharField(max_length=50, null=True, blank=True)
-    # Per 0004 migration this was 8 chars — keep exact to avoid alter ops
     ml_model_hash_prefix = models.CharField(max_length=8, null=True, blank=True)
-    # Feature importances added in 0004 — keep to prevent Django from attempting removal
     feature_importances = models.JSONField(null=True, blank=True)
 
-    # New 011.2 ML fields (append-only)
+    # New 011.2 ML fields
     ml_confidence = models.FloatField(null=True, blank=True)  # 0..100
     composite_score = models.FloatField(null=True, blank=True)  # 0..100
-    top_features = models.JSONField(null=True, blank=True)  # optional richer explanation (Agent 011.3)
+    top_features = models.JSONField(null=True, blank=True)  # explanation (Agent 011.3)
 
     # System bookkeeping
     created_at = models.DateTimeField(auto_now_add=True)
@@ -126,7 +122,6 @@ class TradeAnalysis(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-        """Ensure timestamp defaults to the related bar time when missing."""
         if self.timestamp is None and self.market_data_feature_id:
             try:
                 md = self.market_data_feature.market_data
@@ -148,3 +143,16 @@ class ModelMetadata(models.Model):
 
     def __str__(self) -> str:
         return f"{self.model_name} v{self.version}"
+
+
+# ------------------------------------------------------------
+# MlPreference — for user-configurable weight overrides (Agent 011.3)
+# ------------------------------------------------------------
+class MlPreference(models.Model):
+    key = models.CharField(max_length=100, unique=True)
+    float_value = models.FloatField()
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"{self.key}={self.float_value}"

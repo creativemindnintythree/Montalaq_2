@@ -172,16 +172,18 @@ def run_ml_on_new_data(trade_analysis_id: int) -> None:
 
     ml_conf_pct = ml_prob * 100.0
 
-    weight = getattr(ml_cfg, "DEFAULT_ML_WEIGHT", 0.30)
+    # Use dynamic weight if available
+    weight = ml_cfg.get_ml_weight()
     composite = _compute_composite(rc, float(max(p_long, p_short)), float(weight))
 
     # ---- Explainability hook ----
     try:
+        import numpy as np
         top_feats = explain.get_top_n_feature_importances(
             model,
             n=getattr(ml_cfg, "TOP_N_FEATURES", 5),
             feature_names=feature_names,
-            X_background=np.array(X) if "np" in globals() else None,
+            X_background=np.array(X),
         )
     except Exception:
         top_feats = []
