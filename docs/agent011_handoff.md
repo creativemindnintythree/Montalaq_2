@@ -112,4 +112,38 @@ Agent 011 writes/updates these fields:
 
 ---
 
+## Agent 011.3 Addendum — Stabilization & Amendments
+
+**What changed**
+- Rule confidence aliasing: `rule_confidence` with fallback to `rule_confidence_score`.
+- Explainability hooks: `ml_pipeline/explain.py` with SHAP-if-available, fallback to `feature_importances_` / `coef_`.
+- `TradeAnalysis.top_features` JSON (nullable) persisted after ML.
+- Dynamic ML weight: `MlPreference(key='ml_weight', float_value)` read via `ml_pipeline.config.get_ml_weight()`.
+- TEMPORARY batch runner + beat kept; logs structured for Ops.
+
+**New tests (under `tests/`)**
+- `test_agent0113_edgecases.py` — prob extremes, zero vectors, rule primacy.
+- `test_agent0113_explainability.py` — SHAP mocked + FI fallback; `top_features` persisted.
+- `test_agent0113_weight_override.py` — DB override respected; composite math verified.
+- `test_agent0113_batchrunner.py` — resilience on per-TA failures; summary log asserted.
+
+**For Agency 014 (User Prefs)**
+- Use `MlPreference('ml_weight')` to change blending weight live; no worker restart required.
+
+**For Agency 015 (Dashboard)**
+- Read `TradeAnalysis.top_features` (list of `{feature, importance}`) to display per-trade attribution.
+- ML confidence: `TradeAnalysis.ml_confidence` (0..100).
+- Composite score: `TradeAnalysis.composite_score` (0..100).
+
+**For Agency 019 (Ops/CI)**
+- Observe `backend.tasks_ml_batch` logger for summaries like:
+  `batch_run_recent processed=N lookback_min=15 limit=50`
+- Per-TA outcome line printed from ML runner:
+  `[ML-Runner] TA=<id> rc=<rule_conf> ml=<ml_conf%> comp=<composite>`
+- CI workflow at `.github/workflows/tests.yml` runs migrations and tests on push/PR.
+
+**TEMPORARY bridges**
+- `CELERY_BEAT_SCHEDULE['agent0113-ml-batch-recent']` in settings — to be removed by Agent 013.
+
+
 **End of Document**
