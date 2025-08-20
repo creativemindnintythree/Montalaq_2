@@ -1,0 +1,60 @@
+[2025-08-10 20:05:23] MODE: fetch
+Rows: 104368
+Columns: 8
+Column-wise min, max, mean (numeric only):
+            min         max        mean
+open    1.15311     1.16961    1.162846
+high    1.15311     1.16981    1.162904
+low     1.15302     1.16961    1.162788
+close   1.15302     1.16981    1.162847
+volume  0.00000  3259.00000  112.975989
+atr_14      NaN         NaN         NaN
+--------------------------------------------------
+[2025-08-10 20:31:05] MODE: preprocess
+Rows: 4934
+Columns: 25
+Column-wise min, max, mean (numeric only):
+                                 min  ...                           mean
+timestamp        2025-08-04 19:22:00  ...  2025-08-07 02:37:18.496149248
+open                         1.15311  ...                       1.162796
+high                         1.15319  ...                        1.16287
+low                          1.15302  ...                       1.162722
+close                        1.15311  ...                       1.162798
+volume                           2.0  ...                      2373.9394
+atr_14                      0.000031  ...                       0.000156
+ema_8                       1.153518  ...                       1.162793
+ema_20                      1.153799  ...                       1.162784
+ema_50                      1.154232  ...                       1.162762
+rsi_14                      7.836714  ...                      50.896051
+bb_bbm                      1.153549  ...                       1.162784
+bb_bbh                      1.154087  ...                       1.163195
+bb_bbl                      1.150654  ...                       1.162373
+bb_bandwidth                0.000086  ...                       0.000706
+vwap                        1.154587  ...                       1.159202
+vwap_dist                  -0.003136  ...                       0.003101
+volume_zscore              -2.461493  ...                       0.004788
+range_atr_ratio                  0.0  ...                        0.93977
+ema_bull_cross                   0.0  ...                       0.505675
+ema_bear_cross                   0.0  ...                       0.494325
+rsi_overbought                   0.0  ...                       0.059992
+rsi_oversold                     0.0  ...                       0.036279
+bb_squeeze                       0.0  ...                       0.312728
+
+[24 rows x 3 columns]
+--------------------------------------------------
+[2025-08-11 00:32:21] MODE: ml
+Rows: 4934
+Columns: 2
+Column-wise min, max, mean (numeric only):
+                       min       max      mean
+prediction_label  0.000000  1.000000  0.506283
+prediction_score  0.247005  0.766225  0.509594
+--------------------------------------------------
+[2025-08-11 00:32:21] MODE: full
+Rows: 4934
+Columns: 2
+Column-wise min, max, mean (numeric only):
+                       min       max      mean
+prediction_label  0.000000  1.000000  0.506283
+prediction_score  0.247005  0.766225  0.509594
+--------------------------------------------------

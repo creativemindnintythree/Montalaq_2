@@ -1,0 +1,54 @@
+finnhub:
+  ...
+  mapping:
+    timestamp: "t"
+    open: "o"
+    high: "h"
+    low: "l"
+    close: "c"
+    volume: "v"
+    atr_14: null  # Not included in standard Finnhub candles response
+
+twelvedata:
+  ...
+  mapping:
+    timestamp: "datetime"
+    open: "open"
+    high: "high"
+    low: "low"
+    close: "close"
+    volume: "volume"
+    atr_14: "atr"  # Included if requested as an indicator
+
+allticks:
+  ...
+  mapping:
+    timestamp: "timestamp"
+    open: "open"
+    high: "high"
+    low: "low"
+    close: "close"
+    volume: "volume"
+    atr_14: null  # Assume no ATR included directly
+
+eodhd:
+  ...
+  mapping:
+    timestamp: "datetime"
+    open: "open"
+    high: "high"
+    low: "low"
+    close: "close"
+    volume: "volume"
+    atr_14: null  # Must compute manually later
+
+finage:
+  ...
+  mapping:
+    timestamp: "datetime"
+    open: "open"
+    high: "high"
+    low: "low"
+    close: "close"
+    volume: "volume"
+    atr_14: null  # Manual or separate endpoint

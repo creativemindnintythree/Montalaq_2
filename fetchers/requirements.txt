@@ -1,0 +1,19 @@
+Next Step Recommendation
+Let’s now train a baseline ML model (like XGBoost) using these features.
+
+Task: Build train_model.py to:
+Load ML_ready_EURUSD.csv
+
+Train/test split
+
+Fit a regression model (predict target_return_5min)
+
+Output:
+
+Performance (MAE, MSE, R²)
+
+Saved model (.pkl)
+
+CSV with predictions
+
+Would you like to proceed with that now? If yes, I’ll create the complete script from scratch.

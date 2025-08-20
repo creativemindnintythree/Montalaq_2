@@ -1,0 +1,12 @@
+[
+  "VWAP distance",
+  "RSI (14)",
+  "MACD histogram",
+  "ATR (14)",
+  "Bollinger band width",
+  "Price change % (1h)",
+  "Price change % (4h)",
+  "Moving average (50) deviation",
+  "Moving average (200) deviation",
+  "Order book imbalance"
+]
