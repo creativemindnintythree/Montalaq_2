@@ -1,27 +1,38 @@
 from django.db import models
 
 # ------------------------------------------------------------
-# MarketData — (kept from Agent 010.1 baseline)
+# MarketData — baseline + 013.1 extension (timeframe + idempotent key)
 # ------------------------------------------------------------
 class MarketData(models.Model):
-    timestamp = models.DateTimeField()
-    symbol = models.CharField(max_length=20)
+    timestamp = models.DateTimeField(db_index=True)          # candle timestamp
+    symbol = models.CharField(max_length=20, db_index=True)  # e.g., EURUSD
+    timeframe = models.CharField(                            # e.g., '15m', '1h'
+        max_length=10,
+        default="1m",                                        # default to avoid nulls on existing rows
+        db_index=True
+    )
+
     open = models.FloatField()
     high = models.FloatField()
-    low = models.FloatField()
-    close = models.FloatField()
+    low  = models.FloatField()
+    close= models.FloatField()
     volume = models.FloatField()
     provider = models.CharField(max_length=50)
 
     class Meta:
-        unique_together = ("timestamp", "symbol")
+        # 013.1 idempotence: one bar per (symbol, timeframe, timestamp)
+        unique_together = ("symbol", "timeframe", "timestamp")
         indexes = [
-            models.Index(fields=["symbol", "timestamp"]),
+            models.Index(fields=["symbol", "timeframe", "timestamp"]),
         ]
+
+    def __str__(self) -> str:
+        return f"{self.symbol} {self.timeframe} @ {self.timestamp}"
 
 
 # ------------------------------------------------------------
 # MarketDataFeatures — (kept from Agent 010.1 baseline)
+# One-to-one with a specific MarketData candle
 # ------------------------------------------------------------
 class MarketDataFeatures(models.Model):
     market_data = models.OneToOneField(
@@ -55,14 +66,18 @@ class MarketDataFeatures(models.Model):
     bb_squeeze = models.BooleanField(default=False)
 
     class Meta:
-        unique_together = ("market_data",)
         indexes = [
             models.Index(fields=["market_data"]),
         ]
 
+    def __str__(self) -> str:
+        md = self.market_data
+        return f"Features<{md.symbol} {md.timeframe} @ {md.timestamp}>"
+
 
 # ------------------------------------------------------------
 # TradeAnalysis — 010 fields preserved + 011.2 fields appended
+# 013.1: enforce one analysis per bar via (market_data_feature, timestamp)
 # ------------------------------------------------------------
 class TradeAnalysis(models.Model):
     market_data_feature = models.ForeignKey(
@@ -77,8 +92,9 @@ class TradeAnalysis(models.Model):
     # --------------------
     # Rule-based engine outputs (Agent 010)
     # --------------------
-    rule_confidence = models.IntegerField(null=True, blank=True)
-    final_decision = models.CharField(max_length=20, null=True, blank=True)
+    rule_confidence = models.IntegerField(null=True, blank=True)   # legacy name
+    rule_confidence_score = models.IntegerField(null=True, blank=True)  # 013.1 alias (0..100)
+    final_decision = models.CharField(max_length=20, null=True, blank=True)  # LONG/SHORT/NO_TRADE
     volume_support = models.BooleanField(default=False)
     proximity_to_sr = models.BooleanField(default=False)
     candlestick_pattern = models.CharField(max_length=50, null=True, blank=True)
@@ -104,24 +120,42 @@ class TradeAnalysis(models.Model):
     ml_model_hash_prefix = models.CharField(max_length=8, null=True, blank=True)
     feature_importances = models.JSONField(null=True, blank=True)
 
-    # New 011.2 ML fields
-    ml_confidence = models.FloatField(null=True, blank=True)  # 0..100
-    composite_score = models.FloatField(null=True, blank=True)  # 0..100
-    top_features = models.JSONField(null=True, blank=True)  # explanation (Agent 011.3)
+    # New 011.2 / 011.3 fields
+    ml_confidence = models.FloatField(null=True, blank=True)     # 0..100
+    composite_score = models.FloatField(null=True, blank=True)   # 0..100
+    top_features = models.JSONField(null=True, blank=True)       # explanation (Agent 011.3)
+    ml_skipped = models.BooleanField(default=False)              # 013.1 gate bookkeeping
+
+    # --------------------
+    # New 013.2 fields for persistent task states
+    # --------------------
+    STATUS_CHOICES = [
+        ("PENDING", "Pending"),
+        ("COMPLETE", "Complete"),
+        ("FAILED", "Failed"),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING")
+    error_code = models.CharField(max_length=100, null=True, blank=True)
+    error_message = models.TextField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
 
     # System bookkeeping
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        # 013.1 idempotence at analysis layer: one TA per bar/features row
+        unique_together = (("market_data_feature", "timestamp"),)
         indexes = [
-            models.Index(fields=["ml_signal"]),
-            models.Index(fields=["ml_model_version"]),
-            models.Index(fields=["final_decision"]),
             models.Index(fields=["timestamp"]),
+            models.Index(fields=["final_decision"]),
+            models.Index(fields=["ml_model_version"]),
+            models.Index(fields=["status"]),
         ]
 
     def save(self, *args, **kwargs):
+        # Auto-align timestamp to the underlying MarketData if missing
         if self.timestamp is None and self.market_data_feature_id:
             try:
                 md = self.market_data_feature.market_data
@@ -129,6 +163,90 @@ class TradeAnalysis(models.Model):
             except Exception:
                 pass
         super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        try:
+            md = self.market_data_feature.market_data
+            return f"TA<{md.symbol} {md.timeframe} @ {self.timestamp}> [{self.status}]"
+        except Exception:
+            return f"TA<timestamp={self.timestamp}, status={self.status}>"
+
+
+# ------------------------------------------------------------
+# AnalysisLog — tracks every run (013.2)
+# ------------------------------------------------------------
+class AnalysisLog(models.Model):
+    STATE_CHOICES = [
+        ("PENDING", "Pending"),
+        ("COMPLETE", "Complete"),
+        ("FAILED", "Failed"),
+    ]
+
+    symbol = models.CharField(max_length=20, db_index=True)
+    timeframe = models.CharField(max_length=10, db_index=True)
+    bar_ts = models.DateTimeField(db_index=True)
+
+    state = models.CharField(max_length=20, choices=STATE_CHOICES, default="PENDING")
+    started_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    error_code = models.CharField(max_length=100, null=True, blank=True)
+    error_message = models.TextField(null=True, blank=True)
+
+    latency_ms = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["symbol", "timeframe", "bar_ts"]),
+            models.Index(fields=["state"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"AnalysisLog<{self.symbol} {self.timeframe} @ {self.bar_ts} state={self.state}>"
+
+
+# ------------------------------------------------------------
+# IngestionStatus — tracks provider freshness & KPIs (013.2)
+# ------------------------------------------------------------
+class IngestionStatus(models.Model):
+    FRESHNESS_CHOICES = [
+        ("GREEN", "Green"),
+        ("AMBER", "Amber"),
+        ("RED", "Red"),
+    ]
+
+    symbol = models.CharField(max_length=20, db_index=True)
+    timeframe = models.CharField(max_length=10, db_index=True)
+
+    last_bar_ts = models.DateTimeField(null=True, blank=True)
+    last_ingest_ts = models.DateTimeField(null=True, blank=True)
+
+    freshness_state = models.CharField(
+        max_length=10, choices=FRESHNESS_CHOICES, default="RED"
+    )
+    data_freshness_sec = models.IntegerField(null=True, blank=True)
+
+    provider = models.CharField(max_length=50, null=True, blank=True)
+    key_age_days = models.IntegerField(null=True, blank=True)
+    fallback_active = models.BooleanField(default=False)
+
+    analyses_ok_5m = models.IntegerField(default=0)
+    analyses_fail_5m = models.IntegerField(default=0)
+    median_latency_ms = models.IntegerField(null=True, blank=True)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["symbol", "timeframe"]),
+            models.Index(fields=["freshness_state"]),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"IngestionStatus<{self.symbol} {self.timeframe} "
+            f"freshness={self.freshness_state}>"
+        )
 
 
 # ------------------------------------------------------------
@@ -151,7 +269,6 @@ class ModelMetadata(models.Model):
 class MlPreference(models.Model):
     key = models.CharField(max_length=100, unique=True)
     float_value = models.FloatField()
-
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self) -> str:

@@ -1,0 +1,114 @@
+# backend/logging.yaml
+version: 1
+disable_existing_loggers: false
+
+formatters:
+  json:
+    "()": pythonjsonlogger.jsonlogger.JsonFormatter
+    # Include common Celery/Django fields plus our pipeline extras
+    fmt: >
+      {"ts":"%(asctime)s","lvl":"%(levelname)s","logger":"%(name)s",
+       "msg":"%(message)s","module":"%(module)s","func":"%(funcName)s","line":%(lineno)d,
+       "task_id":"%(task_id)s","task_name":"%(task_name)s",
+       "symbol":"%(symbol)s","timeframe":"%(timeframe)s","bar_ts":"%(bar_ts)s",
+       "state":"%(state)s","status":"%(status)s","error_code":"%(error_code)s",
+       "latency_ms":"%(latency_ms)s","exc_info":"%(exc_text)s"}
+
+  plain:
+    format: "[%(asctime)s] %(levelname)s %(name)s — %(message)s"
+
+filters:
+  # Adds empty values so json formatter always has keys available
+  with_defaults:
+    "()": logging.Filter
+
+handlers:
+  console_json:
+    class: logging.StreamHandler
+    level: INFO
+    formatter: json
+    filters: [with_defaults]
+    stream: ext://sys.stdout
+
+  pipeline_file:
+    class: logging.handlers.RotatingFileHandler
+    level: INFO
+    formatter: json
+    filters: [with_defaults]
+    filename: logs/pipeline.jsonl
+    maxBytes: 10485760   # 10 MB
+    backupCount: 5
+    encoding: utf-8
+
+  celery_errors_file:
+    class: logging.handlers.RotatingFileHandler
+    level: ERROR
+    formatter: json
+    filename: logs/celery_errors.jsonl
+    maxBytes: 10485760
+    backupCount: 5
+    encoding: utf-8
+
+loggers:
+  # Django
+  django:
+    level: INFO
+    handlers: [console_json, pipeline_file]
+    propagate: False
+
+  django.request:
+    level: ERROR
+    handlers: [console_json, pipeline_file]
+    propagate: False
+
+  # Celery runtime
+  celery:
+    level: INFO
+    handlers: [console_json, pipeline_file]
+    propagate: False
+
+  # Celery task trace / exceptions — capture stacktraces as ERROR
+  celery.app.trace:
+    level: ERROR
+    handlers: [console_json, celery_errors_file, pipeline_file]
+    propagate: False
+
+  # Our project namespaces
+  backend:
+    level: INFO
+    handlers: [console_json, pipeline_file]
+    propagate: False
+
+  backend.tasks:
+    level: INFO
+    handlers: [console_json, pipeline_file]
+    propagate: False
+
+  backend.tasks.state_machine:
+    level: INFO          # state transitions as INFO
+    handlers: [console_json, pipeline_file]
+    propagate: False
+
+  backend.tasks.analysis_tasks:
+    level: INFO
+    handlers: [console_json, pipeline_file]
+    propagate: False
+
+  backend.tasks.scheduler:
+    level: INFO
+    handlers: [console_json, pipeline_file]
+    propagate: False
+
+  backend.tasks.freshness:
+    level: INFO
+    handlers: [console_json, pipeline_file]
+    propagate: False
+
+  backend.tasks.kpis:
+    level: INFO
+    handlers: [console_json, pipeline_file]
+    propagate: False
+
+root:
+  level: INFO
+  handlers: [console_json]
