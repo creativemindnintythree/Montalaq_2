@@ -1,0 +1,99 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: montalaq_redis
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - redis-data:/data
+    networks: [montalaq]
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: montalaq_web
+    command: entrypoint.web.sh
+    env_file:
+      - .env
+    environment:
+      # Sensible defaults if not set in .env
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      SQLITE_PATH: ${SQLITE_PATH:-/app/data/db.sqlite3}
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-montalaq_project.settings}
+      DEBUG: ${DEBUG:-1}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}
+      PORT: ${PORT:-8000}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - sqlite-data:/app/data
+    ports:
+      - "8000:8000"
+    networks: [montalaq]
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: montalaq_worker
+    command: entrypoint.worker.sh
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-montalaq_project.settings}
+      CELERY_CONCURRENCY: ${CELERY_CONCURRENCY:-4}
+    depends_on:
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_started
+    volumes:
+      - .:/app
+      - sqlite-data:/app/data
+    networks: [montalaq]
+
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: montalaq_beat
+    command: entrypoint.beat.sh
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-montalaq_project.settings}
+    depends_on:
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_started
+    volumes:
+      - .:/app
+      - beat-schedule:/app/celerybeat
+    networks: [montalaq]
+
+volumes:
+  redis-data:
+  sqlite-data:
+  beat-schedule:
+
+networks:
+  montalaq:
+    driver: bridge

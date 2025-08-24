@@ -1,33 +1,49 @@
 """
-Django settings for montalaq_project project.
+Django settings for montalaq_project.
 """
 
-from pathlib import Path
 import os
-from celery.schedules import crontab
+from pathlib import Path
 
+# =========================
+# Core paths & switches
+# =========================
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = "django-insecure-1234567890"
-DEBUG = True
-ALLOWED_HOSTS = []
+SECRET_KEY = os.getenv("SECRET_KEY", "dev-insecure-key")
+DEBUG = os.getenv("DEBUG", "1") == "1"
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
 
+TIME_ZONE = os.getenv("TIMEZONE", "UTC")
+USE_TZ = True
+USE_I18N = True
+LANGUAGE_CODE = "en-us"
+
+# =========================
+# Installed apps / middleware
+# =========================
 INSTALLED_APPS = [
+    # Django
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "rest_framework",
+
+    # Third-party
+    "rest_framework",          # DRF
+    "drf_yasg",                # Swagger / Redoc
+
+    # Project apps
     "backend",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -38,7 +54,8 @@ ROOT_URLCONF = "montalaq_project.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],  # keep if you add templates later
+        "APP_NAME": "montalaq_project",
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -53,53 +70,108 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "montalaq_project.wsgi.application"
 
+# =========================
+# Database (SQLite default)
+# =========================
+SQLITE_PATH = os.getenv("SQLITE_PATH", str(BASE_DIR / "db.sqlite3"))
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+        "NAME": SQLITE_PATH,
     }
 }
+# (If/when you switch to Postgres, wire DATABASE_URL + dj-database-url here.)
 
-AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
-    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
-    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+# =========================
+# Static / media
+# =========================
+STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_DIRS = [
+    BASE_DIR / "static",
 ]
 
-LANGUAGE_CODE = "en-us"
-TIME_ZONE = "Asia/Muscat"   # as per Agent 013.1 plan
-USE_I18N = True
-USE_TZ = True
+# =========================
+# DRF (defaults are fine)
+# =========================
+REST_FRAMEWORK = {
+    "DEFAULT_RENDERER_CLASSES": [
+        "rest_framework.renderers.JSONRenderer",
+        # Add BrowsableAPIRenderer in dev if you want:
+        # "rest_framework.renderers.BrowsableAPIRenderer",
+    ],
+    "DEFAULT_PARSER_CLASSES": [
+        "rest_framework.parsers.JSONParser",
+    ],
+}
 
-# --- Static files ---
-STATIC_URL = "static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"   # Required for collectstatic
+# =========================
+# Celery / Redis
+# =========================
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", REDIS_URL)
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL)
 
-DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+# Optional but handy tunables (picked up in your Celery app/entrypoints)
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_ALWAYS_EAGER = False
+CELERY_TASK_QUEUES = None  # default queue 'celery'
+CELERY_WORKER_CONCURRENCY = int(os.getenv("CELERY_CONCURRENCY", "4"))
+CELERY_WORKER_MAX_TASKS_PER_CHILD = int(os.getenv("CELERY_MAX_TASKS_PER_CHILD", "100"))
+CELERY_WORKER_PREFETCH_MULTIPLIER = int(os.getenv("CELERY_PREFETCH_MULTIPLIER", "4"))
+# You can enable these later if desired:
+# CELERY_TASK_ACKS_LATE = os.getenv("CELERY_TASK_ACKS_LATE", "0") == "1"
+# CELERY_TASK_TIME_LIMIT = int(os.getenv("CELERY_TASK_TIME_LIMIT", "0") or 0) or None
+# CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", "0") or 0) or None
 
-# Celery configuration
-CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://127.0.0.1:6379/0")
-CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", "redis://127.0.0.1:6379/0")
-CELERY_ACCEPT_CONTENT = ["json"]
-CELERY_TASK_SERIALIZER = "json"
-CELERY_RESULT_SERIALIZER = "json"
-CELERY_TIMEZONE = "Asia/Muscat"
+# =========================
+# Provider API keys & order
+# =========================
+ALLTICK_API_KEY = os.getenv("ALLTICK_API_KEY", "")
+TWELVEDATA_API_KEY = os.getenv("TWELVEDATA_API_KEY", "")
 
-# --- REMOVED LEGACY Agent 011.3 schedule ---
-# CELERY_BEAT_SCHEDULE = {
-#     "agent0113-ml-batch-recent": {
-#         "task": "ml.batch_run_recent",
-#         "schedule": 300.0,
-#         "args": (50, 15),
-#     },
-# }
-# -------------------------------------------
+DEFAULT_PROVIDER_ORDER = os.getenv("DEFAULT_PROVIDER_ORDER", "AllTick")
+ALLOW_FALLBACKS = os.getenv("ALLOW_FALLBACKS", "0") == "1"
+AUTOSLOWDOWN = os.getenv("AUTOSLOWDOWN", "1") == "1"
 
-# Agent 013.1 spine schedule (tick every 60s)
-CELERY_BEAT_SCHEDULE = {
-    "tick-0131-every-60s": {
-        "task": "backend.tasks.scheduler.tick",
-        "schedule": 60.0,
+# =========================
+# Freshness / heartbeat tunables (used by freshness/serializer logic)
+# =========================
+EXPECTED_INTERVALS = {
+    "1m": int(os.getenv("EXPECTED_INTERVAL_1m", "60")),
+    "15m": int(os.getenv("EXPECTED_INTERVAL_15m", "1800")),
+    "1h": int(os.getenv("EXPECTED_INTERVAL_1h", "5400")),
+    "4h": int(os.getenv("EXPECTED_INTERVAL_4h", "21600")),
+}
+
+# =========================
+# Logging
+# =========================
+DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "INFO")
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "console": {
+            "format": "[%(asctime)s] %(levelname)s %(name)s: %(message)s",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "console",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": DJANGO_LOG_LEVEL,
     },
 }
+
+# =========================
+# Security (prod hardening toggles; safe in dev)
+# =========================
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SESSION_COOKIE_SECURE = False
+CSRF_COOKIE_SECURE = False

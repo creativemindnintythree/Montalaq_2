@@ -1,27 +1,26 @@
+# backend/models.py
 from django.db import models
+from django.utils import timezone
+
 
 # ------------------------------------------------------------
-# MarketData — baseline + 013.1 extension (timeframe + idempotent key)
+# MarketData — canonical OHLCV bars (013.1 added timeframe + idempotent key)
 # ------------------------------------------------------------
 class MarketData(models.Model):
-    timestamp = models.DateTimeField(db_index=True)          # candle timestamp
+    timestamp = models.DateTimeField(db_index=True)          # candle timestamp (UTC)
     symbol = models.CharField(max_length=20, db_index=True)  # e.g., EURUSD
-    timeframe = models.CharField(                            # e.g., '15m', '1h'
-        max_length=10,
-        default="1m",                                        # default to avoid nulls on existing rows
-        db_index=True
-    )
+    timeframe = models.CharField(max_length=10, db_index=True)  # '15m', '1h', etc.
 
     open = models.FloatField()
     high = models.FloatField()
-    low  = models.FloatField()
-    close= models.FloatField()
+    low = models.FloatField()
+    close = models.FloatField()
     volume = models.FloatField()
-    provider = models.CharField(max_length=50)
+    provider = models.CharField(max_length=50, default="AllTick")
 
     class Meta:
-        # 013.1 idempotence: one bar per (symbol, timeframe, timestamp)
-        unique_together = ("symbol", "timeframe", "timestamp")
+        # One bar per (symbol, timeframe, timestamp)
+        unique_together = (("symbol", "timeframe", "timestamp"),)
         indexes = [
             models.Index(fields=["symbol", "timeframe", "timestamp"]),
         ]
@@ -31,8 +30,7 @@ class MarketData(models.Model):
 
 
 # ------------------------------------------------------------
-# MarketDataFeatures — (kept from Agent 010.1 baseline)
-# One-to-one with a specific MarketData candle
+# MarketDataFeatures — engineered features per bar (Agent 010 baseline)
 # ------------------------------------------------------------
 class MarketDataFeatures(models.Model):
     market_data = models.OneToOneField(
@@ -41,7 +39,7 @@ class MarketDataFeatures(models.Model):
         related_name="features",
     )
 
-    # Core features
+    # Core features (examples; extend as needed)
     atr_14 = models.FloatField(null=True, blank=True)
     ema_8 = models.FloatField(null=True, blank=True)
     ema_20 = models.FloatField(null=True, blank=True)
@@ -52,7 +50,7 @@ class MarketDataFeatures(models.Model):
     bb_bbl = models.FloatField(null=True, blank=True)
     bb_bandwidth = models.FloatField(null=True, blank=True)
 
-    # Extended features present in baseline
+    # Extended examples
     vwap = models.FloatField(null=True, blank=True)
     vwap_dist = models.FloatField(null=True, blank=True)
     volume_zscore = models.FloatField(null=True, blank=True)
@@ -76,59 +74,46 @@ class MarketDataFeatures(models.Model):
 
 
 # ------------------------------------------------------------
-# TradeAnalysis — 010 fields preserved + 011.2 fields appended
-# 013.1: enforce one analysis per bar via (market_data_feature, timestamp)
+# TradeAnalysis — rules + ML + composite + integrity (013.4)
+# STEP 3: keys are STRICT (non-null) and uniqueness is enforced at DB level.
 # ------------------------------------------------------------
 class TradeAnalysis(models.Model):
+    # Integrity keys (explicit; strict for hard idempotency)
+    symbol = models.CharField(max_length=20, db_index=True)
+    timeframe = models.CharField(max_length=10, db_index=True)
+    bar_ts = models.DateTimeField(db_index=True)  # analyzed candle time
+
+    # Optional link to the exact features row for explainability / joins
     market_data_feature = models.ForeignKey(
         MarketDataFeatures,
-        on_delete=models.CASCADE,
-        related_name="trade_analysis",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="trade_analyses",
     )
 
-    # Align TA to the market bar time (Agent 011.2)
-    timestamp = models.DateTimeField(db_index=True, null=True, blank=True)
-
-    # --------------------
-    # Rule-based engine outputs (Agent 010)
-    # --------------------
-    rule_confidence = models.IntegerField(null=True, blank=True)   # legacy name
-    rule_confidence_score = models.IntegerField(null=True, blank=True)  # 013.1 alias (0..100)
+    # 010 rule engine outputs
     final_decision = models.CharField(max_length=20, null=True, blank=True)  # LONG/SHORT/NO_TRADE
-    volume_support = models.BooleanField(default=False)
-    proximity_to_sr = models.BooleanField(default=False)
-    candlestick_pattern = models.CharField(max_length=50, null=True, blank=True)
-    pattern_location_sr = models.BooleanField(default=False)
-    pattern_confirmed = models.BooleanField(default=False)
-    indicator_confluence = models.BooleanField(default=False)
-    confluence_ok = models.BooleanField(default=False)
+    rule_confidence_score = models.IntegerField(null=True, blank=True)       # 0..100
+    sl = models.FloatField(null=True, blank=True)
+    tp = models.FloatField(null=True, blank=True)
 
-    # Trade execution details (persisted by 010)
-    entry_price = models.FloatField(null=True, blank=True)
-    stop_loss = models.FloatField(null=True, blank=True)
-    take_profit = models.FloatField(null=True, blank=True)
-
-    # --------------------
-    # ML outputs (legacy + new Agent 011.2 fields)
-    # --------------------
+    # 011 ML outputs / explanation
     ml_signal = models.CharField(max_length=20, null=True, blank=True)
+    ml_confidence = models.FloatField(null=True, blank=True)     # 0..100
     ml_prob_long = models.FloatField(null=True, blank=True)
     ml_prob_short = models.FloatField(null=True, blank=True)
     ml_prob_no_trade = models.FloatField(null=True, blank=True)
     ml_expected_rr = models.FloatField(null=True, blank=True)
     ml_model_version = models.CharField(max_length=50, null=True, blank=True)
     ml_model_hash_prefix = models.CharField(max_length=8, null=True, blank=True)
-    feature_importances = models.JSONField(null=True, blank=True)
+    top_features = models.JSONField(null=True, blank=True)
 
-    # New 011.2 / 011.3 fields
-    ml_confidence = models.FloatField(null=True, blank=True)     # 0..100
+    # Composite score (rules ⊕ ML)
     composite_score = models.FloatField(null=True, blank=True)   # 0..100
-    top_features = models.JSONField(null=True, blank=True)       # explanation (Agent 011.3)
-    ml_skipped = models.BooleanField(default=False)              # 013.1 gate bookkeeping
+    ml_skipped = models.BooleanField(default=False)
 
-    # --------------------
-    # New 013.2 fields for persistent task states
-    # --------------------
+    # 013.2 state machine fields
     STATUS_CHOICES = [
         ("PENDING", "Pending"),
         ("COMPLETE", "Complete"),
@@ -145,35 +130,52 @@ class TradeAnalysis(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        # 013.1 idempotence at analysis layer: one TA per bar/features row
-        unique_together = (("market_data_feature", "timestamp"),)
+        unique_together = (("symbol", "timeframe", "bar_ts"),)
         indexes = [
-            models.Index(fields=["timestamp"]),
+            models.Index(fields=["symbol", "timeframe", "bar_ts"]),
             models.Index(fields=["final_decision"]),
             models.Index(fields=["ml_model_version"]),
             models.Index(fields=["status"]),
         ]
 
     def save(self, *args, **kwargs):
-        # Auto-align timestamp to the underlying MarketData if missing
-        if self.timestamp is None and self.market_data_feature_id:
-            try:
-                md = self.market_data_feature.market_data
-                self.timestamp = getattr(md, "timestamp", None)
-            except Exception:
-                pass
+        # If linked to features but keys not set, align keys from MarketData
+        if self.market_data_feature_id and (not self.symbol or not self.timeframe or not self.bar_ts):
+            md = self.market_data_feature.market_data
+            self.symbol = self.symbol or md.symbol
+            self.timeframe = self.timeframe or md.timeframe
+            self.bar_ts = self.bar_ts or md.timestamp
         super().save(*args, **kwargs)
 
-    def __str__(self) -> str:
+    def finish_run_fail(self, exc: Exception):
+        """
+        Model-level helper (013.2.1) to persist failure details using the centralized taxonomy.
+        """
         try:
-            md = self.market_data_feature.market_data
-            return f"TA<{md.symbol} {md.timeframe} @ {self.timestamp}> [{self.status}]"
+            from backend.errors import map_exception  # local import to avoid circulars
+            self.status = "FAILED"
+            self.error_code = str(map_exception(exc).value)
+            self.error_message = str(exc)
+            self.finished_at = timezone.now()
+            self.save(
+                update_fields=[
+                    "status",
+                    "error_code",
+                    "error_message",
+                    "finished_at",
+                    "updated_at",
+                ]
+            )
         except Exception:
-            return f"TA<timestamp={self.timestamp}, status={self.status}>"
+            # Never raise from here; task will also log AnalysisLog failure.
+            pass
+
+    def __str__(self) -> str:
+        return f"TA<{self.symbol} {self.timeframe} @ {self.bar_ts}> [{self.status}]"
 
 
 # ------------------------------------------------------------
-# AnalysisLog — tracks every run (013.2)
+# AnalysisLog — every analysis attempt (013.2)
 # ------------------------------------------------------------
 class AnalysisLog(models.Model):
     STATE_CHOICES = [
@@ -206,65 +208,112 @@ class AnalysisLog(models.Model):
 
 
 # ------------------------------------------------------------
-# IngestionStatus — tracks provider freshness & KPIs (013.2)
+# IngestionStatus — freshness & KPIs per (symbol, timeframe) (013.2/013.3/013.4 heartbeat)
 # ------------------------------------------------------------
 class IngestionStatus(models.Model):
     FRESHNESS_CHOICES = [
-        ("GREEN", "Green"),
-        ("AMBER", "Amber"),
-        ("RED", "Red"),
+        ("GREEN", "GREEN"),
+        ("AMBER", "AMBER"),
+        ("RED", "RED"),
+    ]
+    ESCALATION_CHOICES = [
+        ("INFO", "INFO"),
+        ("WARN", "WARN"),
+        ("ERROR", "ERROR"),
+        ("CRITICAL", "CRITICAL"),
+    ]
+    PROVIDER_CHOICES = [
+        ("AllTick", "AllTick"),
+        ("TwelveData", "TwelveData"),
     ]
 
     symbol = models.CharField(max_length=20, db_index=True)
     timeframe = models.CharField(max_length=10, db_index=True)
 
+    # Freshness + provider
     last_bar_ts = models.DateTimeField(null=True, blank=True)
     last_ingest_ts = models.DateTimeField(null=True, blank=True)
-
-    freshness_state = models.CharField(
-        max_length=10, choices=FRESHNESS_CHOICES, default="RED"
-    )
     data_freshness_sec = models.IntegerField(null=True, blank=True)
-
-    provider = models.CharField(max_length=50, null=True, blank=True)
+    freshness_state = models.CharField(max_length=10, choices=FRESHNESS_CHOICES, default="GREEN")
+    provider = models.CharField(max_length=50, choices=PROVIDER_CHOICES, default="AllTick")
     key_age_days = models.IntegerField(null=True, blank=True)
     fallback_active = models.BooleanField(default=False)
 
+    # KPIs
     analyses_ok_5m = models.IntegerField(default=0)
     analyses_fail_5m = models.IntegerField(default=0)
     median_latency_ms = models.IntegerField(null=True, blank=True)
 
+    # Escalation & Resilience (013.3)
+    escalation_level = models.CharField(max_length=10, choices=ESCALATION_CHOICES, default="INFO")
+    breaker_open = models.BooleanField(default=False)
+    last_notify_at = models.DateTimeField(null=True, blank=True)
+    last_signal_bar_ts = models.DateTimeField(null=True, blank=True)
+
+    # 013.4 Heartbeat — successful poll/WS ping time even if bar didn’t advance
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        unique_together = (("symbol", "timeframe"),)
         indexes = [
             models.Index(fields=["symbol", "timeframe"]),
             models.Index(fields=["freshness_state"]),
+            models.Index(fields=["escalation_level"]),
         ]
 
     def __str__(self) -> str:
         return (
             f"IngestionStatus<{self.symbol} {self.timeframe} "
-            f"freshness={self.freshness_state}>"
+            f"freshness={self.freshness_state} provider={self.provider}>"
         )
 
 
 # ------------------------------------------------------------
-# ModelMetadata — keep existing (baseline)
+# NotificationChannel — channel configs (013.3)
 # ------------------------------------------------------------
-class ModelMetadata(models.Model):
-    model_name = models.CharField(max_length=255)
+class NotificationChannel(models.Model):
+    TYPE_CHOICES = (
+        ("EMAIL", "EMAIL"),
+        ("WEBHOOK", "WEBHOOK"),
+        ("SLACK", "SLACK"),
+    )
+    name = models.CharField(max_length=64, unique=True)
+    channel_type = models.CharField(max_length=16, choices=TYPE_CHOICES)
+    enabled = models.BooleanField(default=False)
+    min_severity = models.CharField(max_length=10, default="INFO")
+    config = models.JSONField(default=dict)  # smtp/webhook/slack specifics
+    events = models.JSONField(default=dict)  # {"signal": true, "failure": true, "freshness": true}
+    dedupe_window_sec = models.IntegerField(default=900)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"Notify<{self.name}:{self.channel_type}{' enabled' if self.enabled else ''}>"
+
+
+# ------------------------------------------------------------
+# MlModelRegistry — track model versions & hashes (Agent 011.2)
+# ------------------------------------------------------------
+class MlModelRegistry(models.Model):
+    model_name = models.CharField(max_length=100, db_index=True)
     version = models.CharField(max_length=50)
-    training_date = models.DateTimeField(auto_now_add=True)
-    parameters = models.JSONField()
-    metrics = models.JSONField()
+    hash_prefix = models.CharField(max_length=8)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = (("model_name", "version"),)
+        indexes = [
+            models.Index(fields=["model_name", "version"]),
+        ]
 
     def __str__(self) -> str:
         return f"{self.model_name} v{self.version}"
 
 
 # ------------------------------------------------------------
-# MlPreference — for user-configurable weight overrides (Agent 011.3)
+# MlPreference — model weight overrides (Agent 011.3)
 # ------------------------------------------------------------
 class MlPreference(models.Model):
     key = models.CharField(max_length=100, unique=True)

@@ -1,42 +1,59 @@
-from typing import Optional
+# backend/api/status/views.py
+from __future__ import annotations
+
+from typing import Dict, Optional
+
 from django.utils import timezone
 from rest_framework.views import APIView
-from rest_framework.response import Response
 from rest_framework.request import Request
-from rest_framework import status
+from rest_framework.response import Response
 
 from backend.models import IngestionStatus
+from .serializers import IngestionStatusSerializer
 
 
 class IngestionStatusView(APIView):
     """
     GET /api/ingestion/status
 
-    Returns:
-    {
-      "provider": "AllTick",
-      "fallback_active": false,
-      "key_age_days": 3,
-      "pairs": [
-        {
-          "symbol": "EURUSD",
-          "timeframe": "15m",
-          "last_ts": "2025-08-21T18:52:00Z",
-          "freshness": "GREEN",
-          "data_freshness_sec": 58,
-          "analyses_ok_5m": 12,
-          "analyses_fail_5m": 0,
-          "median_latency_ms": 135
-        }
-      ]
-    }
+    Returns an overview of ingestion freshness and heartbeat per (symbol, timeframe).
+    The per‑pair objects include a derived `heartbeat` label from the serializer:
+      - "Healthy"
+      - "Connected – no new ticks"
+      - "Provider stale"
+      - "Unknown"
     """
 
-    def get_provider_block(self, rows) -> dict:
-        # Choose provider metadata from the most recently updated row if available
+    def _providers_summary(self, rows: list[IngestionStatus]) -> Dict[str, dict]:
+        """
+        Aggregate counts & last update per provider for a quick glance.
+        """
+        summary: Dict[str, dict] = {}
+        grouped: Dict[str, list[IngestionStatus]] = {}
+        for r in rows:
+            grouped.setdefault(r.provider, []).append(r)
+
+        for provider, items in grouped.items():
+            last_updated = max(
+                (i.updated_at for i in items if i.updated_at),
+                default=None,
+            )
+            summary[provider] = {
+                "pairs": len(items),
+                "last_updated": last_updated,
+            }
+        return summary
+
+    def _provider_meta(self, rows: list[IngestionStatus]) -> dict:
+        """
+        Surface latest provider meta (fallback/key_age_days) from the most recently updated row.
+        """
         latest: Optional[IngestionStatus] = None
         if rows:
-            latest = max(rows, key=lambda r: r.updated_at or timezone.make_aware(timezone.datetime.min))
+            latest = max(
+                rows,
+                key=lambda r: r.updated_at or timezone.make_aware(timezone.datetime.min),
+            )
 
         return {
             "provider": getattr(latest, "provider", None) if latest else None,
@@ -44,29 +61,16 @@ class IngestionStatusView(APIView):
             "key_age_days": getattr(latest, "key_age_days", None) if latest else None,
         }
 
-    def get(self, request: Request):
+    def get(self, request: Request) -> Response:
         qs = IngestionStatus.objects.all().order_by("symbol", "timeframe")
         rows = list(qs)
 
-        meta = self.get_provider_block(rows)
-
-        pairs = []
-        for r in rows:
-            pairs.append(
-                {
-                    "symbol": r.symbol,
-                    "timeframe": r.timeframe,
-                    "last_ts": r.last_bar_ts,
-                    "freshness": r.freshness_state,
-                    "data_freshness_sec": r.data_freshness_sec,
-                    "analyses_ok_5m": r.analyses_ok_5m,
-                    "analyses_fail_5m": r.analyses_fail_5m,
-                    "median_latency_ms": r.median_latency_ms,
-                }
-            )
+        # Serialize pairs; serializer injects `heartbeat` and `expected_interval`
+        data = IngestionStatusSerializer(rows, many=True).data
 
         payload = {
-            **meta,
-            "pairs": pairs,
+            "meta": self._provider_meta(rows),
+            "pairs": data,  # each item includes: heartbeat, expected_interval, and core fields
+            "providers_summary": self._providers_summary(rows),
         }
-        return Response(payload, status=status.HTTP_200_OK)
+        return Response(payload)
