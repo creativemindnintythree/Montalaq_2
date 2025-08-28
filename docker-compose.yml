@@ -1,4 +1,3 @@
-version: "3.9"
 
 services:
   redis:
@@ -13,13 +12,11 @@ services:
     volumes:
       - redis-data:/data
     networks: [montalaq]
-
   web:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: montalaq_web
-    command: entrypoint.web.sh
     env_file:
       - .env
     environment:
@@ -41,13 +38,13 @@ services:
     ports:
       - "8000:8000"
     networks: [montalaq]
-
+    entrypoint:
+      - /app/docker/entrypoint.web.sh
   worker:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: montalaq_worker
-    command: entrypoint.worker.sh
     env_file:
       - .env
     environment:
@@ -65,13 +62,13 @@ services:
       - .:/app
       - sqlite-data:/app/data
     networks: [montalaq]
-
+    entrypoint:
+      - /app/docker/entrypoint.worker.sh
   beat:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: montalaq_beat
-    command: entrypoint.beat.sh
     env_file:
       - .env
     environment:
@@ -88,12 +85,12 @@ services:
       - .:/app
       - beat-schedule:/app/celerybeat
     networks: [montalaq]
-
+    entrypoint:
+      - /app/docker/entrypoint.beat.sh
 volumes:
   redis-data:
   sqlite-data:
   beat-schedule:
-
 networks:
   montalaq:
     driver: bridge

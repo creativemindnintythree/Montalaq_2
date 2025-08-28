@@ -55,7 +55,7 @@ TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
         "DIRS": [BASE_DIR / "templates"],  # keep if you add templates later
-        "APP_NAME": "montalaq_project",
+        "NAME": "django",
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
