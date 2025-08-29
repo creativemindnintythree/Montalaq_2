@@ -1,3 +1,5 @@
+import random, time
+from django.db.utils import OperationalError
 # backend/tasks/analysis_tasks.py
 """
 013.4 analyze task — Idempotency + NO_TRADE discipline
@@ -14,7 +16,6 @@ What this does now:
 - Uses model-level finish_run_fail for consistent error taxonomy (013.2.1).
 """
 
-from __future__ import annotations
 
 import logging
 from typing import Any, Dict, Optional
@@ -181,7 +182,7 @@ def analyze_latest(symbol: str, timeframe: str) -> Dict[str, Any]:
                     ta_obj.composite_score = composite
                     fields_to_update.append("composite_score")
                 if fields_to_update:
-                    ta_obj.save(update_fields=fields_to_update + ["updated_at"])
+                    _save_with_retry(ta_obj, update_fields=fields_to_update + ["updated_at"])
 
             # Mark COMPLETE via state machine helper
             mark_tradeanalysis_status(ta_obj.id, "COMPLETE")
@@ -215,3 +216,15 @@ def analyze_latest(symbol: str, timeframe: str) -> Dict[str, Any]:
         # Always end the AnalysisLog with failure
         finish_run_fail(log_id, mapped.value, str(exc))
         return {"error": str(exc), "error_code": mapped.value}
+def _save_with_retry(obj, update_fields=None, attempts=6, base=0.05):
+    """Retry ORM save on SQLite lock with exponential backoff + jitter."""
+    for i in range(attempts):
+        try:
+            _save_with_retry(obj, update_fields=update_fields)
+            return
+        except OperationalError as e:
+            m = str(e).lower()
+            if "database is locked" not in m and "database is busy" not in m:
+                raise
+            time.sleep(base * (2 ** i) + random.uniform(0, base))
+    _save_with_retry(obj, update_fields=update_fields)

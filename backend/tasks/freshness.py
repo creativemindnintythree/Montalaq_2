@@ -1,5 +1,6 @@
+from django.db.utils import OperationalError
+import random, time
 # backend/tasks/freshness.py
-from __future__ import annotations
 
 import os
 from datetime import datetime, timedelta
@@ -319,6 +320,22 @@ def update_ingestion_status(
             fields_to_update.append("key_age_days")
 
         if fields_to_update:
-            obj.save(update_fields=fields_to_update)
+            _save_with_retry(obj, update_fields=fields_to_update)
 
     return obj
+def _save_with_retry(obj, update_fields=None, attempts=6, base=0.05):
+    """
+    Exponential backoff with jitter for sqlite OperationalError: database is locked
+    attempts: 6 → ~0.05, 0.1, 0.2, 0.4, 0.8, 1.6s (+ jitter)
+    """
+    for i in range(attempts):
+        try:
+            obj.save(update_fields=update_fields)
+            return
+        except OperationalError as e:
+            msg = str(e).lower()
+            if "database is locked" not in msg and "database is busy" not in msg:
+                raise
+            sleep_s = base * (2 ** i) + random.uniform(0, base)
+            time.sleep(sleep_s)
+    obj.save(update_fields=update_fields)

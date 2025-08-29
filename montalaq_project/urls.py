@@ -1,9 +1,11 @@
 # montalaq_project/urls.py
 from django.contrib import admin
 from django.urls import path, include
+from .health import healthz
 from backend.api.schema import schema_view, redoc_view  # uses DRF get_schema_view + custom ReDoc
 
 urlpatterns = [
+    path("healthz", healthz),
     path("admin/", admin.site.urls),
 
     # ---- API schema & docs ----
