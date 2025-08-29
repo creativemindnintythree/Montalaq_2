@@ -16,7 +16,6 @@ What this does now:
 - Uses model-level finish_run_fail for consistent error taxonomy (013.2.1).
 """
 
-from __future__ import annotations
 
 import logging
 from typing import Any, Dict, Optional
