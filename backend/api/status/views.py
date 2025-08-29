@@ -1,5 +1,5 @@
+from backend.api.status.augment import augment_status_payload
 # backend/api/status/views.py
-from __future__ import annotations
 
 from typing import Dict, Optional
 
@@ -73,4 +73,4 @@ class IngestionStatusView(APIView):
             "pairs": data,  # each item includes: heartbeat, expected_interval, and core fields
             "providers_summary": self._providers_summary(rows),
         }
-        return Response(payload)
+        return Response(augment_status_payload(payload))
