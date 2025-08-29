@@ -5,6 +5,7 @@ from .health import healthz
 from backend.api.schema import schema_view, redoc_view  # uses DRF get_schema_view + custom ReDoc
 
 urlpatterns = [
+    path("api/preferences/", include("backend.api.preferences.urls")),
     path("healthz", healthz),
     path("admin/", admin.site.urls),
 
