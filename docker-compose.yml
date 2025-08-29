@@ -60,7 +60,11 @@ services:
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-montalaq_project.settings}
-      CELERY_CONCURRENCY: ${CELERY_CONCURRENCY:-4}
+      CELERY_CONCURRENCY: "1"
+      CELERY_PREFETCH_MULTIPLIER: "1"
+      CELERY_ACKS_LATE: "1"
+      CELERY_TASK_ACKS_ON_FAILURE_OR_TIMEOUT: "1"
+      CELERY_MAX_TASKS_PER_CHILD: "300"
     depends_on:
       redis:
         condition: service_healthy

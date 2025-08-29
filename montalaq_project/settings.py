@@ -175,3 +175,13 @@ LOGGING = {
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SESSION_COOKIE_SECURE = False
 CSRF_COOKIE_SECURE = False
+from django.db.backends.signals import connection_created as _conn_created
+def _mtq_sqlite_pragmas(sender, connection, **kwargs):
+    if connection.vendor == "sqlite":
+        with connection.cursor() as c:
+
+            c.execute("PRAGMA busy_timeout=20000;")
+            c.execute("PRAGMA journal_mode=WAL;")
+            c.execute("PRAGMA synchronous=NORMAL;")
+
+_conn_created.connect(_mtq_sqlite_pragmas)
