@@ -1,10 +1,13 @@
 # montalaq_project/urls.py
 from django.contrib import admin
 from django.urls import path, include
+from .health import readyz
 from .health import healthz
 from backend.api.schema import schema_view, redoc_view  # uses DRF get_schema_view + custom ReDoc
 
 urlpatterns = [
+    path("readyz", readyz),
+    path("api/marketdata/", include("backend.api.marketdata.urls")),
     path("api/preferences/", include("backend.api.preferences.urls")),
     path("healthz", healthz),
     path("admin/", admin.site.urls),

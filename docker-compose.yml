@@ -22,7 +22,7 @@ services:
     environment:
       # Sensible defaults if not set in .env
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
       SQLITE_PATH: ${SQLITE_PATH:-/app/data/db.sqlite3}
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-montalaq_project.settings}
