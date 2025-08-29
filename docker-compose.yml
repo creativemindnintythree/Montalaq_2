@@ -65,6 +65,16 @@ services:
       CELERY_ACKS_LATE: "1"
       CELERY_TASK_ACKS_ON_FAILURE_OR_TIMEOUT: "1"
       CELERY_MAX_TASKS_PER_CHILD: "300"
+      ALERT_QUOTA_WARN_PCT: "80"
+      ALERT_COOLDOWN_SEC: "600"
+      ALERT_CHECK_EVERY_SEC: "60"
+      ALERT_WEBHOOK_URL: ""
+      ALERT_EMAIL_FROM: ""
+      ALERT_EMAIL_TO: ""
+      SMTP_HOST: ""
+      SMTP_PORT: "587"
+      SMTP_USER: ""
+      SMTP_PASSWORD: ""
     depends_on:
       redis:
         condition: service_healthy
@@ -88,6 +98,16 @@ services:
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-montalaq_project.settings}
+      ALERT_QUOTA_WARN_PCT: "80"
+      ALERT_COOLDOWN_SEC: "600"
+      ALERT_CHECK_EVERY_SEC: "60"
+      ALERT_WEBHOOK_URL: ""
+      ALERT_EMAIL_FROM: ""
+      ALERT_EMAIL_TO: ""
+      SMTP_HOST: ""
+      SMTP_PORT: "587"
+      SMTP_USER: ""
+      SMTP_PASSWORD: ""
     depends_on:
       redis:
         condition: service_healthy
