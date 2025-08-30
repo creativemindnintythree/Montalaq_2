@@ -322,3 +322,19 @@ class MlPreference(models.Model):
 
     def __str__(self) -> str:
         return f"{self.key}={self.float_value}"
+
+from django.db import models
+
+class ProviderTelemetry(models.Model):
+    provider = models.CharField(max_length=64, unique=True)
+    quota_usage_pct = models.FloatField(null=True, blank=True)
+    key_age_days = models.IntegerField(null=True, blank=True)
+    fallback_active = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+    class Meta:
+        verbose_name = "Provider Telemetry"
+        verbose_name_plural = "Provider Telemetries"
+
+    def __str__(self) -> str:
+        return f"{self.provider} telemetry"
+
