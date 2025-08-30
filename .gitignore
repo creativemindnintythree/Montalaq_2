@@ -1,1 +1,16 @@
 .env
+__pycache__/
+*.pyc
+*.pytest_cache/
+.venv/
+venv/
+.env
+.env.*.local
+*.key
+*.pem
+*.sqlite3
+data/
+logs/
+staticfiles/
+media/
+docker/*.local.*
