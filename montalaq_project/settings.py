@@ -185,3 +185,9 @@ def _mtq_sqlite_pragmas(sender, connection, **kwargs):
             c.execute("PRAGMA synchronous=NORMAL;")
 
 _conn_created.connect(_mtq_sqlite_pragmas)
+from celery.schedules import schedule as _celery_schedule
+CELERY_BEAT_SCHEDULE = locals().get("CELERY_BEAT_SCHEDULE", {})
+CELERY_BEAT_SCHEDULE["check_provider_alerts"] = {
+    "task": "backend.tasks.alert_tasks.check_provider_alerts",
+    "schedule": float(os.getenv("ALERT_CHECK_EVERY_SEC", "60")),
+}

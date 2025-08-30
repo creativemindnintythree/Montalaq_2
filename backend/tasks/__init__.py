@@ -1,3 +1,4 @@
+from .alert_tasks import *     # notifications
 # backend/tasks/__init__.py
 """
 Expose Celery tasks by importing submodules so Celery can register them
