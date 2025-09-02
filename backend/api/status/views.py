@@ -1,76 +1,47 @@
-from backend.api.status.augment import augment_status_payload
-# backend/api/status/views.py
-
-from typing import Dict, Optional
-
-from django.utils import timezone
-from rest_framework.views import APIView
-from rest_framework.request import Request
+from django.apps import apps
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from backend.models import IngestionStatus
 from .serializers import IngestionStatusSerializer
 
 
+def ingestion_status(request):
+    IngestionStatus = apps.get_model("backend", "IngestionStatus")
+    # IMPORTANT: use updated_at (not last_updated)
+    rows = list(IngestionStatus.objects.all().order_by("-updated_at"))
+
+    # Build per-provider summary
+    providers_summary = {}
+    for r in rows:
+        d = providers_summary.setdefault(r.provider, {"pairs": 0, "updated_at": None})
+        d["pairs"] += 1
+        if r.updated_at and (d["updated_at"] is None or r.updated_at > d["updated_at"]):
+            d["updated_at"] = r.updated_at
+
+    latest = rows[0] if rows else None
+
+    # Serialize pairs via DRF serializer
+    pairs = IngestionStatusSerializer(rows, many=True).data
+
+    # Back-compat aliases the tests expect
+    for item in pairs:
+        # tests read 'freshness' as an alias for freshness_state
+        item.setdefault("freshness", item.get("freshness_state"))
+        # tests read 'last_ts' (prefer last_ingest_ts, fallback to last_bar_ts)
+        item.setdefault("last_ts", item.get("last_ingest_ts") or item.get("last_bar_ts"))
+
+    payload = {
+        "provider": latest.provider if latest else None,
+        "fallback_active": bool(getattr(latest, "fallback_active", False)) if latest else False,
+        # tests expect key_age_days at top-level (from the most recent row)
+        "key_age_days": getattr(latest, "key_age_days", None) if latest else None,
+        "providers_summary": providers_summary,
+        "pairs": pairs,
+    }
+    return Response(payload)
+
+
 class IngestionStatusView(APIView):
-    """
-    GET /api/ingestion/status
-
-    Returns an overview of ingestion freshness and heartbeat per (symbol, timeframe).
-    The per‑pair objects include a derived `heartbeat` label from the serializer:
-      - "Healthy"
-      - "Connected – no new ticks"
-      - "Provider stale"
-      - "Unknown"
-    """
-
-    def _providers_summary(self, rows: list[IngestionStatus]) -> Dict[str, dict]:
-        """
-        Aggregate counts & last update per provider for a quick glance.
-        """
-        summary: Dict[str, dict] = {}
-        grouped: Dict[str, list[IngestionStatus]] = {}
-        for r in rows:
-            grouped.setdefault(r.provider, []).append(r)
-
-        for provider, items in grouped.items():
-            last_updated = max(
-                (i.updated_at for i in items if i.updated_at),
-                default=None,
-            )
-            summary[provider] = {
-                "pairs": len(items),
-                "last_updated": last_updated,
-            }
-        return summary
-
-    def _provider_meta(self, rows: list[IngestionStatus]) -> dict:
-        """
-        Surface latest provider meta (fallback/key_age_days) from the most recently updated row.
-        """
-        latest: Optional[IngestionStatus] = None
-        if rows:
-            latest = max(
-                rows,
-                key=lambda r: r.updated_at or timezone.make_aware(timezone.datetime.min),
-            )
-
-        return {
-            "provider": getattr(latest, "provider", None) if latest else None,
-            "fallback_active": getattr(latest, "fallback_active", False) if latest else False,
-            "key_age_days": getattr(latest, "key_age_days", None) if latest else None,
-        }
-
-    def get(self, request: Request) -> Response:
-        qs = IngestionStatus.objects.all().order_by("symbol", "timeframe")
-        rows = list(qs)
-
-        # Serialize pairs; serializer injects `heartbeat` and `expected_interval`
-        data = IngestionStatusSerializer(rows, many=True).data
-
-        payload = {
-            "meta": self._provider_meta(rows),
-            "pairs": data,  # each item includes: heartbeat, expected_interval, and core fields
-            "providers_summary": self._providers_summary(rows),
-        }
-        return Response(augment_status_payload(payload))
+    """Compatibility wrapper for tests that call the CBV."""
+    def get(self, request, *args, **kwargs):
+        return ingestion_status(request)
