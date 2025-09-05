@@ -33,6 +33,8 @@ class IngestionStatusSerializer(serializers.ModelSerializer):
             "provider",
             "key_age_days",
             "fallback_active",
+            "in_backoff",
+            "backoff_until",
             # KPIs
             "analyses_ok_5m",
             "analyses_fail_5m",
