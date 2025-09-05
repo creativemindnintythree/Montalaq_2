@@ -14,3 +14,7 @@ logs/
 staticfiles/
 media/
 docker/*.local.*
+
+# Python cache
+__pycache__/
+*.pyc
