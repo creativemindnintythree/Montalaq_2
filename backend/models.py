@@ -239,7 +239,11 @@ class IngestionStatus(models.Model):
     freshness_state = models.CharField(max_length=10, choices=FRESHNESS_CHOICES, default="GREEN")
     provider = models.CharField(max_length=50, choices=PROVIDER_CHOICES, default="AllTick")
     key_age_days = models.IntegerField(null=True, blank=True)
-    fallback_active = models.BooleanField(default=False)
+    fallback_active = models.BooleanField(default=False)    # --- 013.6: per-pair backoff state (dev-profile) ---\n    in_backoff = models.BooleanField(default=False)\n    backoff_until = models.DateTimeField(null=True, blank=True)\n    backoff_attempts = models.IntegerField(default=0)
+    # --- 013.6: per-pair backoff state (dev-profile) ---
+    in_backoff = models.BooleanField(default=False)
+    backoff_until = models.DateTimeField(null=True, blank=True)
+    backoff_attempts = models.IntegerField(default=0)
 
     # KPIs
     analyses_ok_5m = models.IntegerField(default=0)
