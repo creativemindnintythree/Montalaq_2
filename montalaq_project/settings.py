@@ -208,3 +208,19 @@ CELERY_RESULT_BACKEND = _os.getenv("CELERY_RESULT_BACKEND") if _ENABLE_RESULTS e
 # When enabled, have Celery auto-expire stored results (debug hygiene)
 if _ENABLE_RESULTS:
     CELERY_RESULT_EXPIRES = int(_os.getenv("CELERY_RESULT_EXPIRES", "3600"))  # seconds
+
+# --- Notifications defaults (dev/dry-run) ---
+NOTIFICATION_DEFAULTS = {
+"dry_run": True,          # no real sends in dev
+"per_minute_limit": 60,   # coarse rate limit
+"dedupe_window_sec": 900, # 15m for signal dedupe
+}
+
+# --- Cache: use Redis in dev so Celery worker + web share keys (dedupe/rate) ---
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": os.getenv("REDIS_URL", "redis://redis:6379/0"),
+    }
+}
+
