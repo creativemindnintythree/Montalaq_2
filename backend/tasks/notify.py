@@ -40,7 +40,14 @@ from backend.errors import ErrorCode, map_exception  # noqa: F401 (map_exception
 
 # ----- severity helpers ------------------------------------------------------
 
-_SEV_ORDER = {"INFO": 0, "WARN": 1, "ERROR": 2, "CRITICAL": 3}
+_SEV_ORDER = {
+    "DEBUG": 0,
+    "INFO": 1,
+    "WARNING": 2,
+    "WARN": 2,
+    "ERROR": 3,
+    "CRITICAL": 4
+}
 
 
 def _meets_min_severity(level: str, min_required: str) -> bool:
@@ -132,19 +139,10 @@ def _send_slack(webhook_url: str, text: str, payload: Dict[str, Any]) -> None:
     max_retries=5,
 )
 def send_notification(event: str, severity: str, payload: Dict[str, Any]) -> None:
-    """
-    Send a notification.
+    severity = (severity or "INFO").upper()
+    if severity == "WARN":
+       severity = "WARNING"
 
-    Args:
-        event: "signal" | "failure" | "freshness" | "recovery" | custom
-        severity: "INFO" | "WARN" | "ERROR" | "CRITICAL"
-        payload: dict with context. May include:
-            - title (str)
-            - symbol (str), timeframe (str), bar_ts (iso-like str)
-            - decision (str), composite (int), sl (str/num), tp (str/num)
-            - error_code (ErrorCode | str), error_message (str)
-            - any additional fields safe to serialize
-    """
     cfg = settings.NOTIFICATION_DEFAULTS
     channels = cfg.get("channels", {})
     dry_run = bool(cfg.get("dry_run", False))
