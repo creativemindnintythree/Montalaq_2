@@ -2,7 +2,7 @@ from __future__ import annotations
 import os
 from celery import shared_task
 from typing import Optional
-from notify.dispatcher import send_alert
+from .notify import send_notification
 from django.apps import apps
 
 def _PT():
@@ -39,8 +39,8 @@ def check_provider_alerts() -> dict:
         if bool(row.fallback_active):
             issues.append(("fallback", row.provider, "fallback_active=True"))
     for kind, provider, msg in issues:
-        key = f"{kind}:{provider}"
-        subject = f"[Montalaq] {provider} {kind} alert"
-        body = f"{provider}: {msg}"
-        send_alert(key, subject, body, tags=[kind, provider])
-    return {"ok": True, "count": len(issues)}
+        # route via notifier so Redis rate limiting applies
+        severity = "ERROR" if kind in {"quota", "fallback"} else "INFO"
+        payload = {"provider": provider, "kind": kind, "message": msg}
+        # fire-and-forget (keeps beat/worker separation)
+        send_notification.delay("provider", severity, payload)

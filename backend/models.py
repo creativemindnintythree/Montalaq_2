@@ -1,5 +1,6 @@
 # backend/models.py
 from django.db import models
+from backend.models_managers import TradeAnalysisManager
 from django.utils import timezone
 
 
@@ -128,6 +129,7 @@ class TradeAnalysis(models.Model):
     # System bookkeeping
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    objects = TradeAnalysisManager()
 
     class Meta:
         unique_together = (("symbol", "timeframe", "bar_ts"),)
@@ -237,7 +239,11 @@ class IngestionStatus(models.Model):
     freshness_state = models.CharField(max_length=10, choices=FRESHNESS_CHOICES, default="GREEN")
     provider = models.CharField(max_length=50, choices=PROVIDER_CHOICES, default="AllTick")
     key_age_days = models.IntegerField(null=True, blank=True)
-    fallback_active = models.BooleanField(default=False)
+    fallback_active = models.BooleanField(default=False)    # --- 013.6: per-pair backoff state (dev-profile) ---\n    in_backoff = models.BooleanField(default=False)\n    backoff_until = models.DateTimeField(null=True, blank=True)\n    backoff_attempts = models.IntegerField(default=0)
+    # --- 013.6: per-pair backoff state (dev-profile) ---
+    in_backoff = models.BooleanField(default=False)
+    backoff_until = models.DateTimeField(null=True, blank=True)
+    backoff_attempts = models.IntegerField(default=0)
 
     # KPIs
     analyses_ok_5m = models.IntegerField(default=0)
@@ -255,6 +261,7 @@ class IngestionStatus(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    objects = TradeAnalysisManager()
 
     class Meta:
         unique_together = (("symbol", "timeframe"),)
@@ -319,11 +326,13 @@ class MlPreference(models.Model):
     key = models.CharField(max_length=100, unique=True)
     float_value = models.FloatField()
     updated_at = models.DateTimeField(auto_now=True)
+    objects = TradeAnalysisManager()
 
     def __str__(self) -> str:
         return f"{self.key}={self.float_value}"
 
 from django.db import models
+from backend.models_managers import TradeAnalysisManager
 
 class ProviderTelemetry(models.Model):
     provider = models.CharField(max_length=64, unique=True)
@@ -331,6 +340,7 @@ class ProviderTelemetry(models.Model):
     key_age_days = models.IntegerField(null=True, blank=True)
     fallback_active = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
+    objects = TradeAnalysisManager()
     class Meta:
         verbose_name = "Provider Telemetry"
         verbose_name_plural = "Provider Telemetries"

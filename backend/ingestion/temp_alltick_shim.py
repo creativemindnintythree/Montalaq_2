@@ -1,9 +1,11 @@
 # TEMPORARY: AllTick-only shim (remove when Agency 012 lands)
 import os, datetime as dt, random
 try:
-    import requests  # only used when DEV_FAKE is off
+    import requests
+    from backend.net.retry import http_get_with_backoff  # only used when DEV_FAKE is off
 except Exception:
     requests = None
+    http_get_with_backoff = None  # type: ignore
 
 ALLTICK_API_KEY = os.environ.get("ALLTICK_API_KEY")
 DEV_FAKE = os.environ.get("ALLTICK_DEV_FAKE", "1")  # "1" = fake bars by default
@@ -33,7 +35,7 @@ def fetch_latest_bar(symbol: str, timeframe: str, last_close: float | None = Non
     assert ALLTICK_API_KEY, "Missing ALLTICK_API_KEY; set it or use ALLTICK_DEV_FAKE=1"
     url = f"https://api.alltick.example/ohlcv?symbol={symbol}&tf={timeframe}&limit=1"
     headers = {"Authorization": f"Bearer {ALLTICK_API_KEY}"}
-    r = requests.get(url, headers=headers, timeout=10)
+    r = http_get_with_backoff(url, headers=headers, timeout=10, max_attempts=5, base=0.2, factor=2.0, jitter=0.3)
     r.raise_for_status()
     j = r.json()[0]
     ts = dt.datetime.fromisoformat(j["ts"]).replace(tzinfo=dt.timezone.utc)

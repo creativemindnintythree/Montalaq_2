@@ -1,0 +1,8 @@
+services:
+  worker:
+    environment:
+      BACKOFF_BASE_SEC: "0.2"
+      BACKOFF_FACTOR:   "2.0"
+      BACKOFF_CAP_SEC:  "2.5"
+      BACKOFF_JITTER:   "0.3"
+      ALLTICK_DEV_FAKE: "0"

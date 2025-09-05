@@ -40,7 +40,7 @@ class LatestAnalysisView(APIView):
                 market_data_feature__market_data__symbol=pair,
                 market_data_feature__market_data__timeframe=tf,
             )
-            .order_by("-timestamp")
+            .order_by("-bar_ts")
             .first()
         )
         if not obj:
@@ -81,7 +81,7 @@ class HistoryAnalysisView(APIView):
                 market_data_feature__market_data__symbol=pair,
                 market_data_feature__market_data__timeframe=tf,
             )
-            .order_by("-timestamp")[:limit]
+            .order_by("-bar_ts")[:limit]
         )
         if not qs.exists():
             return Response({"error": "No analysis found"}, status=status.HTTP_404_NOT_FOUND)

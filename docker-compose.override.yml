@@ -1,0 +1,7 @@
+services:
+  worker:
+    environment:
+      # 013.6c dev-profile
+      CELERY_CONCURRENCY: "2"            # worker -c
+      CELERY_PREFETCH_MULTIPLIER: "1"     # qos
+      CELERY_MAX_TASKS_PER_CHILD: "200"   # recycle
