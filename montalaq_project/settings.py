@@ -210,23 +210,27 @@ if _ENABLE_RESULTS:
     CELERY_RESULT_EXPIRES = int(_os.getenv("CELERY_RESULT_EXPIRES", "3600"))  # seconds
 
 # --- Notifications defaults (dev/dry-run) ---
+def env_bool(name, default=False):
+    v = os.getenv(name)
+    return default if v is None else v.lower() in {"1","true","yes","on"}
+
 NOTIFICATION_DEFAULTS = {
-    "dry_run": False,                     # <— turn on real sending
-    "max_events_per_minute": 60,          # <— code expects this key
-    "dedupe_window_sec": 900,
+    "dry_run": env_bool("NOTIFY_DRY_RUN", False),
+    "max_events_per_minute": int(os.getenv("NOTIFY_MAX_EVENTS_PER_MINUTE", "60")),
+    "dedupe_window_sec": int(os.getenv("NOTIFY_DEDUPE_WINDOW_SEC", "900")),
     "channels": {
         "webhook": {
-            "enabled": True,
-            "url": "https://httpbin.org/post"   # or your real endpoint
+            "enabled": env_bool("NOTIFY_WEBHOOK_ENABLED", True),
+            "url": os.getenv("NOTIFY_WEBHOOK_URL", "https://httpbin.org/post"),
         },
         "email": {
-            "enabled": False,
-            "from_addr": "noreply@example.com",
-            "to_addrs": []
+            "enabled": env_bool("NOTIFY_EMAIL_ENABLED", False),
+            "from_addr": os.getenv("NOTIFY_EMAIL_FROM", "noreply@example.com"),
+            "to_addrs": [a for a in os.getenv("NOTIFY_EMAIL_TO", "").split(",") if a],
         },
         "slack": {
-            "enabled": False,
-            "webhook_url": ""
+            "enabled": env_bool("NOTIFY_SLACK_ENABLED", False),
+            "webhook_url": os.getenv("NOTIFY_SLACK_WEBHOOK_URL", ""),
         },
     },
 }
