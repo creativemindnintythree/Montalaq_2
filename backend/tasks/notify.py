@@ -25,9 +25,11 @@ from __future__ import annotations
 
 import json
 from typing import Any, Dict, Optional
-
 import requests
 from celery import shared_task
+from celery.utils.log import get_task_logger
+
+logger = get_task_logger(__name__)
 from django.conf import settings
 from django.core.mail import send_mail
 from django.utils import timezone
@@ -148,16 +150,40 @@ def send_notification(event: str, severity: str, payload: Dict[str, Any]) -> Non
     dry_run = bool(cfg.get("dry_run", False))
     per_min_limit = int(cfg.get("max_events_per_minute", 60))
     dedupe_window_sec = int(cfg.get("dedupe_window_sec", 900))
+    # severity floor (skip if severity below *all* enabled channels)
+    try:
+        from backend.models import NotificationChannel as _C
+        LEVELS = ["DEBUG","INFO","WARNING","ERROR","CRITICAL"]
+        def _idx(x):
+            try:
+                return LEVELS.index(str(x or "INFO").upper())
+            except ValueError:
+                return LEVELS.index("INFO")
+        floors = [_idx(c.min_severity) for c in _C.objects.filter(enabled=True)]
+        if floors:
+            floor_idx = min(floors)
+            sev_idx = _idx(severity)
+            if sev_idx < floor_idx:
+                logger.info("notify.skip: below-floor event=%s severity=%s floor_idx=%s", event, severity, floor_idx)
+                return
+    except Exception:
+        # if DB lookup fails, do not block
+        pass
+
 
     # rate limit (coarse, per event+severity)
+    rkey = _rate_key(event, severity)
     if not _rate_ok(event, severity, per_minute_limit=per_min_limit):
+        logger.info("notify.skip: rate-limited key=%s", rkey)
         return
 
     # dedupe: only for signal-like notifications where bar context is present
     if event == "signal" and not _dedupe_ok(payload, dedupe_window_sec):
+        dkey = _dedupe_key(payload)
+        logger.info("notify.skip: deduped key=%s payload_keys=%s", dkey, sorted(list(payload.keys())))
         return
 
-    # Build common subject/text
+
     title = payload.get("title") or f"{event} event"
     err_code = payload.get("error_code")  # should be ErrorCode (Enum) or str
     if isinstance(err_code, ErrorCode):
