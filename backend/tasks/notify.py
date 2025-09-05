@@ -40,14 +40,12 @@ from backend.errors import ErrorCode, map_exception  # noqa: F401 (map_exception
 
 # ----- severity helpers ------------------------------------------------------
 
-_SEV_ORDER = {
-    "DEBUG": 0,
-    "INFO": 1,
-    "WARNING": 2,
-    "WARN": 2,
-    "ERROR": 3,
-    "CRITICAL": 4
-}
+_SEV_ORDER = {"DEBUG":0,"INFO":1,"WARNING":2,"ERROR":3,"CRITICAL":4}
+_SEV_ALIAS = {"WARN":"WARNING"}
+
+def _normalize_severity(s):
+    s = (s or "INFO").upper()
+    return _SEV_ALIAS.get(s, s) if s in _SEV_ORDER or s in _SEV_ALIAS else "INFO"
 
 
 def _meets_min_severity(level: str, min_required: str) -> bool:
@@ -99,17 +97,30 @@ def _dedupe_ok(payload: Dict[str, Any], window_sec: int) -> bool:
 
 def _send_email(subject: str, body: str) -> None:
     cfg = settings.NOTIFICATION_DEFAULTS["channels"]["email"]
-    send_mail(
-        subject=subject,
-        message=body,
-        from_email=cfg["from_addr"],
-        recipient_list=[a for a in cfg.get("to_addrs", []) if a],
-        fail_silently=False,
-    )
+    to_addrs = [a for a in cfg.get("to_addrs", []) if a]
+    try:
+        sent = send_mail(
+            subject=subject,
+            message=body,
+            from_email=cfg["from_addr"],
+            recipient_list=to_addrs,
+            fail_silently=False,
+        )
+        logger.info("notify.sent: email to=%s count=%s", ",".join(to_addrs), sent)
+    except Exception as e:
+        logger.exception("notify.error: email to=%s err=%s", ",".join(to_addrs), e)
+        raise
 
 
 def _send_webhook(url: str, payload: Dict[str, Any]) -> None:
-    requests.post(url, json=payload, timeout=10)
+    try:
+        resp = requests.post(url, json=payload, timeout=10)
+        logger.info("notify.sent: webhook status=%s url=%s", getattr(resp, "status_code", "?"), url)
+        # Treat non-2xx as failures to enable retries:
+        resp.raise_for_status()
+    except Exception as e:
+        logger.exception("notify.error: webhook url=%s err=%s", url, e)
+        raise
 
 
 def _send_slack(webhook_url: str, text: str, payload: Dict[str, Any]) -> None:
@@ -117,17 +128,17 @@ def _send_slack(webhook_url: str, text: str, payload: Dict[str, Any]) -> None:
     msg = {
         "text": text,
         "blocks": [
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": text},
-            },
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": f"```{json.dumps(payload, default=str)}```"},
-            },
+            {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"```{json.dumps(payload, default=str)}```"}},
         ],
     }
-    requests.post(webhook_url, json=msg, timeout=10)
+    try:
+        resp = requests.post(webhook_url, json=msg, timeout=10)
+        logger.info("notify.sent: slack status=%s url=%s", getattr(resp, "status_code", "?"), webhook_url)
+        resp.raise_for_status()
+    except Exception as e:
+        logger.exception("notify.error: slack url=%s err=%s", webhook_url, e)
+        raise
 
 
 # ----- public Celery task ----------------------------------------------------
@@ -139,53 +150,53 @@ def _send_slack(webhook_url: str, text: str, payload: Dict[str, Any]) -> None:
     max_retries=5,
 )
 def send_notification(event: str, severity: str, payload: Dict[str, Any]) -> None:
+    # Normalize severity
     severity = (severity or "INFO").upper()
     if severity == "WARN":
-       severity = "WARNING"
+        severity = "WARNING"
 
     cfg = settings.NOTIFICATION_DEFAULTS
     channels = cfg.get("channels", {})
     dry_run = bool(cfg.get("dry_run", False))
     per_min_limit = int(cfg.get("max_events_per_minute", 60))
     dedupe_window_sec = int(cfg.get("dedupe_window_sec", 900))
-    # severity floor (per-event: only enabled channels listening to this event)
-    try:
-        from backend.models import NotificationChannel as _C
-        LEVELS = ["DEBUG","INFO","WARNING","ERROR","CRITICAL"]
 
-        def _idx(x):
-            try:
-                return LEVELS.index(str(x or "INFO").upper())
-            except ValueError:
-                return LEVELS.index("INFO")
+# severity floor (per-event: only enabled channels listening to this event)
+try:
+    from backend.models import NotificationChannel as _C
+    LEVELS = ["DEBUG","INFO","WARNING","ERROR","CRITICAL"]
+    def _idx(x):
+        try:
+            return LEVELS.index(str(x or "INFO").upper())
+        except ValueError:
+            return LEVELS.index("INFO")
 
-        qs = _C.objects.filter(enabled=True)
+    qs = _C.objects.filter(enabled=True)
+    candidates = []
+    for _c in qs:
+        evs = getattr(_c, "events", None)
+        if isinstance(evs, dict):
+            listens = bool(evs.get(event, False))   # strict: only explicit True
+        else:
+            listens = False                         # no map -> not listening
+        if listens:
+            candidates.append(_c)
 
-        candidates = []
-        for _c in qs:
-            evs = getattr(_c, "events", None)
-            if not isinstance(evs, dict):
-                # Back-compat: no map => assume listens to all events
-                listens = True
-            else:
-                # Strict per-event: only count explicit True
-                listens = bool(evs.get(event, False))
-            if listens:
-                candidates.append(_c)
+    if not candidates:
+        logger.info("notify.skip: no-channel-listening event=%s severity=%s", event, severity)
+        return
 
-        floors = [_idx(_c.min_severity) for _c in candidates] or [_idx(_c.min_severity) for _c in qs]
-        if floors:
-            floor_idx = min(floors)
-            sev_idx = _idx(severity)
-            if sev_idx < floor_idx:
-                logger.info(
-                    "notify.skip: below-floor (per-event) event=%s severity=%s floor_idx=%s",
-                    event, severity, floor_idx
-            )
-            return
-    except Exception:
-        # if DB lookup fails, do not block
-        pass
+    floors = [_idx(_c.min_severity) for _c in candidates]
+    floor_idx = min(floors)
+    sev_idx = _idx(severity)
+    if sev_idx < floor_idx:
+        logger.info(
+            "notify.skip: below-floor (per-event) event=%s severity=%s floor_idx=%s",
+            event, severity, floor_idx
+        )
+        return
+except Exception:
+    pass
 
 
     # rate limit (coarse, per event+severity)
