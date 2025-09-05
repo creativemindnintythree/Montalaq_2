@@ -191,3 +191,20 @@ CELERY_BEAT_SCHEDULE["check_provider_alerts"] = {
     "task": "backend.tasks.alert_tasks.check_provider_alerts",
     "schedule": float(os.getenv("ALERT_CHECK_EVERY_SEC", "60")),
 }
+
+# --- Celery result backend policy (HoA) ---------------------------------------
+# Default: do NOT persist task results (prod-safe, stateless pipeline).
+# Opt-in for debugging with ENABLE_CELERY_RESULTS=1.
+import os as _os
+
+_ENABLE_RESULTS = _os.getenv("ENABLE_CELERY_RESULTS", "0") == "1"
+
+# Ignore results by default (worker won’t try to store them)
+CELERY_TASK_IGNORE_RESULT = not _ENABLE_RESULTS
+
+# Only set a backend when explicitly enabled (keeps worker/web stateless)
+CELERY_RESULT_BACKEND = _os.getenv("CELERY_RESULT_BACKEND") if _ENABLE_RESULTS else None
+
+# When enabled, have Celery auto-expire stored results (debug hygiene)
+if _ENABLE_RESULTS:
+    CELERY_RESULT_EXPIRES = int(_os.getenv("CELERY_RESULT_EXPIRES", "3600"))  # seconds

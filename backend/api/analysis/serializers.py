@@ -19,6 +19,8 @@ class _TradeAnalysisBaseSerializer(serializers.ModelSerializer):
     timeframe = serializers.SerializerMethodField()
     bar_ts = serializers.SerializerMethodField()
     top_features = serializers.SerializerMethodField()
+    stop_loss = serializers.SerializerMethodField()
+    take_profit = serializers.SerializerMethodField()
 
     class Meta:
         model = TradeAnalysis
@@ -52,7 +54,20 @@ class _TradeAnalysisBaseSerializer(serializers.ModelSerializer):
 
     def get_bar_ts(self, obj):
         # Prefer the TA.timestamp; model.save aligns this to the bar
-        return getattr(obj, "timestamp", None)
+        return getattr(obj, "bar_ts", None)
+
+    
+    def get_stop_loss(self, obj):
+        try:
+            return getattr(obj, "sl", None)
+        except Exception:
+            return None
+
+    def get_take_profit(self, obj):
+        try:
+            return getattr(obj, "tp", None)
+        except Exception:
+            return None
 
     def get_top_features(self, obj) -> Optional[Dict[str, Any]]:
         """
