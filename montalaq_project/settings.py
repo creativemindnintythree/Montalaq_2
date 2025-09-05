@@ -211,16 +211,23 @@ if _ENABLE_RESULTS:
 
 # --- Notifications defaults (dev/dry-run) ---
 NOTIFICATION_DEFAULTS = {
-"dry_run": True,          # no real sends in dev
-"per_minute_limit": 60,   # coarse rate limit
-"dedupe_window_sec": 900, # 15m for signal dedupe
-}
-
-# --- Cache: use Redis in dev so Celery worker + web share keys (dedupe/rate) ---
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": os.getenv("REDIS_URL", "redis://redis:6379/0"),
-    }
+    "dry_run": False,                     # <— turn on real sending
+    "max_events_per_minute": 60,          # <— code expects this key
+    "dedupe_window_sec": 900,
+    "channels": {
+        "webhook": {
+            "enabled": True,
+            "url": "https://httpbin.org/post"   # or your real endpoint
+        },
+        "email": {
+            "enabled": False,
+            "from_addr": "noreply@example.com",
+            "to_addrs": []
+        },
+        "slack": {
+            "enabled": False,
+            "webhook_url": ""
+        },
+    },
 }
 
