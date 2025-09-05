@@ -1,9 +1,7 @@
 services:
-  worker:
-    environment:
-      ENABLE_CELERY_RESULTS: "1"
-      CELERY_RESULT_BACKEND: "redis://redis:6379/0"
   web:
     environment:
-      ENABLE_CELERY_RESULTS: "1"
-      CELERY_RESULT_BACKEND: "redis://redis:6379/0"
+      ALLTICK_DEV_FAKE: "0"
+  worker:
+    environment:
+      ALLTICK_DEV_FAKE: "0"
