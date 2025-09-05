@@ -191,3 +191,47 @@ CELERY_BEAT_SCHEDULE["check_provider_alerts"] = {
     "task": "backend.tasks.alert_tasks.check_provider_alerts",
     "schedule": float(os.getenv("ALERT_CHECK_EVERY_SEC", "60")),
 }
+
+# --- Celery result backend policy (HoA) ---------------------------------------
+# Default: do NOT persist task results (prod-safe, stateless pipeline).
+# Opt-in for debugging with ENABLE_CELERY_RESULTS=1.
+import os as _os
+
+_ENABLE_RESULTS = _os.getenv("ENABLE_CELERY_RESULTS", "0") == "1"
+
+# Ignore results by default (worker won’t try to store them)
+CELERY_TASK_IGNORE_RESULT = not _ENABLE_RESULTS
+
+# Only set a backend when explicitly enabled (keeps worker/web stateless)
+CELERY_RESULT_BACKEND = _os.getenv("CELERY_RESULT_BACKEND") if _ENABLE_RESULTS else None
+
+# When enabled, have Celery auto-expire stored results (debug hygiene)
+if _ENABLE_RESULTS:
+    CELERY_RESULT_EXPIRES = int(_os.getenv("CELERY_RESULT_EXPIRES", "3600"))  # seconds
+
+# --- Notifications defaults (dev/dry-run) ---
+def env_bool(name, default=False):
+    v = os.getenv(name)
+    return default if v is None else v.lower() in {"1","true","yes","on"}
+
+NOTIFICATION_DEFAULTS = {
+    "dry_run": env_bool("NOTIFY_DRY_RUN", False),
+    "max_events_per_minute": int(os.getenv("NOTIFY_MAX_EVENTS_PER_MINUTE", "60")),
+    "dedupe_window_sec": int(os.getenv("NOTIFY_DEDUPE_WINDOW_SEC", "900")),
+    "channels": {
+        "webhook": {
+            "enabled": env_bool("NOTIFY_WEBHOOK_ENABLED", True),
+            "url": os.getenv("NOTIFY_WEBHOOK_URL", "https://httpbin.org/post"),
+        },
+        "email": {
+            "enabled": env_bool("NOTIFY_EMAIL_ENABLED", False),
+            "from_addr": os.getenv("NOTIFY_EMAIL_FROM", "noreply@example.com"),
+            "to_addrs": [a for a in os.getenv("NOTIFY_EMAIL_TO", "").split(",") if a],
+        },
+        "slack": {
+            "enabled": env_bool("NOTIFY_SLACK_ENABLED", False),
+            "webhook_url": os.getenv("NOTIFY_SLACK_WEBHOOK_URL", ""),
+        },
+    },
+}
+
