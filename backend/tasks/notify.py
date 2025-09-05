@@ -38,6 +38,50 @@ from django.core.cache import cache
 # 013.2.1 centralized taxonomy
 from backend.errors import ErrorCode, map_exception  # noqa: F401 (map_exception available to callers)
 
+def _passes_per_event_floor(event: str, severity: str) -> bool:
+    """
+    Returns True if this event+severity should be delivered
+    given per-channel per-event floors; False if it should be skipped.
+    On DB errors, returns True (do not block notifications).
+    """
+    try:
+        from backend.models import NotificationChannel as _C
+
+        LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+        def _idx(x):
+            try:
+                return LEVELS.index(str(x or "INFO").upper())
+            except ValueError:
+                return LEVELS.index("INFO")
+
+        qs = _C.objects.filter(enabled=True)
+
+        # Strict per-event listening: only channels with events[event] == True
+        candidates = []
+        for _c in qs:
+            evs = getattr(_c, "events", None)
+            if isinstance(evs, dict) and bool(evs.get(event, False)):
+                candidates.append(_c)
+
+        if not candidates:
+            logger.info("notify.skip: no-channel-listening event=%s severity=%s", event, severity)
+            return False
+
+        floor_idx = min(_idx(_c.min_severity) for _c in candidates)
+        sev_idx = _idx(severity)
+        if sev_idx < floor_idx:
+            logger.info(
+                "notify.skip: below-floor (per-event) event=%s severity=%s floor_idx=%s",
+                event, severity, floor_idx,
+            )
+            return False
+
+        return True
+    except Exception:
+        # If DB lookup fails, don't block notifications.
+        return True
+
 # ----- severity helpers ------------------------------------------------------
 
 _SEV_ORDER = {"DEBUG":0,"INFO":1,"WARNING":2,"ERROR":3,"CRITICAL":4}
@@ -150,53 +194,50 @@ def _send_slack(webhook_url: str, text: str, payload: Dict[str, Any]) -> None:
     max_retries=5,
 )
 def send_notification(event: str, severity: str, payload: Dict[str, Any]) -> None:
-    # Normalize severity
     severity = (severity or "INFO").upper()
     if severity == "WARN":
         severity = "WARNING"
 
     cfg = settings.NOTIFICATION_DEFAULTS
-    channels = cfg.get("channels", {})
+    channels_cfg = cfg.get("channels", {})
     dry_run = bool(cfg.get("dry_run", False))
     per_min_limit = int(cfg.get("max_events_per_minute", 60))
     dedupe_window_sec = int(cfg.get("dedupe_window_sec", 900))
 
-# severity floor (per-event: only enabled channels listening to this event)
-try:
-    from backend.models import NotificationChannel as _C
-    LEVELS = ["DEBUG","INFO","WARNING","ERROR","CRITICAL"]
-    def _idx(x):
-        try:
-            return LEVELS.index(str(x or "INFO").upper())
-        except ValueError:
-            return LEVELS.index("INFO")
+    # --- severity floor (per-event: only enabled channels listening to this event)
+    try:
+        from backend.models import NotificationChannel as _C
+        LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
-    qs = _C.objects.filter(enabled=True)
-    candidates = []
-    for _c in qs:
-        evs = getattr(_c, "events", None)
-        if isinstance(evs, dict):
-            listens = bool(evs.get(event, False))   # strict: only explicit True
-        else:
-            listens = False                         # no map -> not listening
-        if listens:
-            candidates.append(_c)
+        def _idx(x):
+            try:
+                return LEVELS.index(str(x or "INFO").upper())
+            except ValueError:
+                return LEVELS.index("INFO")
 
-    if not candidates:
-        logger.info("notify.skip: no-channel-listening event=%s severity=%s", event, severity)
-        return
+        qs = _C.objects.filter(enabled=True)
 
-    floors = [_idx(_c.min_severity) for _c in candidates]
-    floor_idx = min(floors)
-    sev_idx = _idx(severity)
-    if sev_idx < floor_idx:
-        logger.info(
-            "notify.skip: below-floor (per-event) event=%s severity=%s floor_idx=%s",
-            event, severity, floor_idx
-        )
-        return
-except Exception:
-    pass
+        # Strict per-event: only channels with events[event] == True
+        candidates = []
+        for _c in qs:
+            evs = getattr(_c, "events", None)
+            if isinstance(evs, dict) and evs.get(event, False):
+                candidates.append(_c)
+
+        if not candidates:
+            logger.info("notify.skip: no-channel-listening event=%s", event)
+            return
+        floor_idx = min(_idx(_c.min_severity) for _c in candidates)
+        sev_idx = _idx(severity)
+        if sev_idx < floor_idx:
+            logger.info(
+                "notify.skip: below-floor (per-event) event=%s severity=%s floor_idx=%s",
+                event, severity, floor_idx,
+            )
+            return
+    except Exception:
+        # if DB lookup fails, do not block
+        pass
 
 
     # rate limit (coarse, per event+severity)
