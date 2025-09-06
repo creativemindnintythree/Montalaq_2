@@ -192,46 +192,41 @@ CELERY_BEAT_SCHEDULE["check_provider_alerts"] = {
     "schedule": float(os.getenv("ALERT_CHECK_EVERY_SEC", "60")),
 }
 
-# --- Celery result backend policy (HoA) ---------------------------------------
-# Default: do NOT persist task results (prod-safe, stateless pipeline).
-# Opt-in for debugging with ENABLE_CELERY_RESULTS=1.
-import os as _os
+# --- Notifications defaults (env-driven) ---
 
-_ENABLE_RESULTS = _os.getenv("ENABLE_CELERY_RESULTS", "0") == "1"
-
-# Ignore results by default (worker won’t try to store them)
-CELERY_TASK_IGNORE_RESULT = not _ENABLE_RESULTS
-
-# Only set a backend when explicitly enabled (keeps worker/web stateless)
-CELERY_RESULT_BACKEND = _os.getenv("CELERY_RESULT_BACKEND") if _ENABLE_RESULTS else None
-
-# When enabled, have Celery auto-expire stored results (debug hygiene)
-if _ENABLE_RESULTS:
-    CELERY_RESULT_EXPIRES = int(_os.getenv("CELERY_RESULT_EXPIRES", "3600"))  # seconds
-
-# --- Notifications defaults (dev/dry-run) ---
-def env_bool(name, default=False):
+def env_bool(name: str, default: bool = False) -> bool:
     v = os.getenv(name)
-    return default if v is None else v.lower() in {"1","true","yes","on"}
+    return default if v is None else v.strip().lower() in {"1", "true", "yes", "on"}
+
+def env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+def env_list(name: str):
+    raw = os.getenv(name, "")
+    return [x.strip() for x in raw.split(",") if x.strip()]
 
 NOTIFICATION_DEFAULTS = {
     "dry_run": env_bool("NOTIFY_DRY_RUN", False),
-    "max_events_per_minute": int(os.getenv("NOTIFY_MAX_EVENTS_PER_MINUTE", "60")),
-    "dedupe_window_sec": int(os.getenv("NOTIFY_DEDUPE_WINDOW_SEC", "900")),
+    "max_events_per_minute": env_int("NOTIFY_MAX_PER_MIN", 60),
+    "dedupe_window_sec": env_int("NOTIFY_DEDUPE_SEC", 900),
     "channels": {
         "webhook": {
             "enabled": env_bool("NOTIFY_WEBHOOK_ENABLED", True),
             "url": os.getenv("NOTIFY_WEBHOOK_URL", "https://httpbin.org/post"),
+            # NEW: empty = signing OFF; non-empty = signing ON
+            "secret": os.getenv("NOTIFY_WEBHOOK_SECRET", ""),
         },
         "email": {
             "enabled": env_bool("NOTIFY_EMAIL_ENABLED", False),
             "from_addr": os.getenv("NOTIFY_EMAIL_FROM", "noreply@example.com"),
-            "to_addrs": [a for a in os.getenv("NOTIFY_EMAIL_TO", "").split(",") if a],
+            "to_addrs": env_list("NOTIFY_EMAIL_TO"),
         },
         "slack": {
             "enabled": env_bool("NOTIFY_SLACK_ENABLED", False),
-            "webhook_url": os.getenv("NOTIFY_SLACK_WEBHOOK_URL", ""),
+            "webhook_url": os.getenv("NOTIFY_SLACK_WEBHOOK", ""),
         },
     },
 }
-

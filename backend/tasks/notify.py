@@ -23,9 +23,8 @@ Environment / settings integration:
 
 from __future__ import annotations
 
-import json
-from typing import Any, Dict, Optional
-import requests
+import json, requests, datetime, hmac, hashlib, logging
+from typing import Dict, Any
 from celery import shared_task
 from celery.utils.log import get_task_logger
 
@@ -139,7 +138,12 @@ def _dedupe_ok(payload: Dict[str, Any], window_sec: int) -> bool:
 
 # ----- core senders ----------------------------------------------------------
 
+def _dry_run() -> bool:
+    return bool(settings.NOTIFICATION_DEFAULTS.get("dry_run"))
+
 def _send_email(subject: str, body: str) -> None:
+    if _dry_run():
+        logger.info("notify.skip: dry-run email subject=%s", subject); return
     cfg = settings.NOTIFICATION_DEFAULTS["channels"]["email"]
     to_addrs = [a for a in cfg.get("to_addrs", []) if a]
     try:
@@ -156,11 +160,28 @@ def _send_email(subject: str, body: str) -> None:
         raise
 
 
-def _send_webhook(url: str, payload: Dict[str, Any]) -> None:
+def _stable_json(payload: dict) -> str:
+    return json.dumps(payload, default=str, separators=(",", ":"), sort_keys=True)
+
+def _send_webhook(url: str, payload: dict) -> None:
+    if _dry_run():
+        logger.info("notify.skip: dry-run webhook url=%s", url); return
+    body = _stable_json(payload)
+    headers = {"Content-Type": "application/json"}
+
+    cfg = settings.NOTIFICATION_DEFAULTS.get("channels", {}).get("webhook", {}) or {}
+    secret = (cfg.get("secret") or "").encode("utf-8")
+    ts = datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+    if secret:
+        msg = f"{ts}\n{body}".encode("utf-8")
+        sig = hmac.new(secret, msg, hashlib.sha256).hexdigest()
+        headers["X-Timestamp"] = ts
+        headers["X-Signature"] = f"sha256={sig}"
+
     try:
-        resp = requests.post(url, json=payload, timeout=10)
+        resp = requests.post(url, data=body, headers=headers, timeout=10)
         logger.info("notify.sent: webhook status=%s url=%s", getattr(resp, "status_code", "?"), url)
-        # Treat non-2xx as failures to enable retries:
         resp.raise_for_status()
     except Exception as e:
         logger.exception("notify.error: webhook url=%s err=%s", url, e)
@@ -169,6 +190,8 @@ def _send_webhook(url: str, payload: Dict[str, Any]) -> None:
 
 def _send_slack(webhook_url: str, text: str, payload: Dict[str, Any]) -> None:
     # Simple Slack-compatible webhook (blocks/attachments optional)
+    if _dry_run():
+        logger.info("notify.skip: dry-run slack url=%s", webhook_url); return
     msg = {
         "text": text,
         "blocks": [
@@ -204,42 +227,11 @@ def send_notification(event: str, severity: str, payload: Dict[str, Any]) -> Non
     per_min_limit = int(cfg.get("max_events_per_minute", 60))
     dedupe_window_sec = int(cfg.get("dedupe_window_sec", 900))
 
-    # --- severity floor (per-event: only enabled channels listening to this event)
-    try:
-        from backend.models import NotificationChannel as _C
-        LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    # NEW: per-event floor gate
+    if not _passes_per_event_floor(event, severity):
+        return
 
-        def _idx(x):
-            try:
-                return LEVELS.index(str(x or "INFO").upper())
-            except ValueError:
-                return LEVELS.index("INFO")
-
-        qs = _C.objects.filter(enabled=True)
-
-        # Strict per-event: only channels with events[event] == True
-        candidates = []
-        for _c in qs:
-            evs = getattr(_c, "events", None)
-            if isinstance(evs, dict) and evs.get(event, False):
-                candidates.append(_c)
-
-        if not candidates:
-            logger.info("notify.skip: no-channel-listening event=%s", event)
-            return
-        floor_idx = min(_idx(_c.min_severity) for _c in candidates)
-        sev_idx = _idx(severity)
-        if sev_idx < floor_idx:
-            logger.info(
-                "notify.skip: below-floor (per-event) event=%s severity=%s floor_idx=%s",
-                event, severity, floor_idx,
-            )
-            return
-    except Exception:
-        # if DB lookup fails, do not block
-        pass
-
-
+   
     # rate limit (coarse, per event+severity)
     rkey = _rate_key(event, severity)
     if not _rate_ok(event, severity, per_minute_limit=per_min_limit):
@@ -263,17 +255,17 @@ def send_notification(event: str, severity: str, payload: Dict[str, Any]) -> Non
         subject += f" ({err_code})"
         text_line += f" ({err_code})"
 
-    # If dry-run, skip actual sends (useful in tests / staging)
+# If dry-run, skip actual sends (useful in tests / staging)
     if dry_run:
         return
 
     # EMAIL
-    email_cfg = channels.get("email") or {}
+    email_cfg = channels_cfg.get("email") or {}
     if email_cfg.get("enabled") and _meets_min_severity(severity, "INFO"):
         _send_email(subject, json.dumps(payload, default=str))
 
     # GENERIC WEBHOOK
-    webhook_cfg = channels.get("webhook") or {}
+    webhook_cfg = channels_cfg.get("webhook") or {}
     if webhook_cfg.get("enabled") and webhook_cfg.get("url") and _meets_min_severity(severity, "INFO"):
         _send_webhook(
             webhook_cfg["url"],
@@ -281,6 +273,6 @@ def send_notification(event: str, severity: str, payload: Dict[str, Any]) -> Non
         )
 
     # SLACK (webhook)
-    slack_cfg = channels.get("slack") or {}
+    slack_cfg = channels_cfg.get("slack") or {}
     if slack_cfg.get("enabled") and slack_cfg.get("webhook_url") and _meets_min_severity(severity, "INFO"):
         _send_slack(slack_cfg["webhook_url"], text_line, payload)
