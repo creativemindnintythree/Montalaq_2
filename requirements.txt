@@ -1,6 +1,9 @@
+# Core framework
 django>=5.0
 celery>=5.3
 redis>=5.0
+
+# ML / analytics
 lightgbm>=4.0
 scikit-learn>=1.3
 joblib>=1.3
@@ -17,3 +20,7 @@ drf-yasg>=1.21.7,<2
 
 # HTTP client for notify/webhooks
 requests>=2.32,<3
+
+# --- Testing / CI (Agent 013.7 smoke tests etc.) ---
+pytest
+pytest-django

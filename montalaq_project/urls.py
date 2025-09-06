@@ -6,7 +6,9 @@ from .health import healthz
 from backend.api.schema import schema_view, redoc_view  # uses DRF get_schema_view + custom ReDoc
 
 urlpatterns = [
-    path("readyz", readyz),
+    
+    path('healthz', healthz, name='healthz'),
+path("readyz", readyz),
     path("api/marketdata/", include("backend.api.marketdata.urls")),
     path("api/preferences/", include("backend.api.preferences.urls")),
     path("healthz", healthz),
@@ -22,3 +24,6 @@ urlpatterns = [
     path("api/ingestion/", include("backend.api.status.urls")),   # /api/ingestion/status
     path("api/analysis/", include("backend.api.analysis.urls")),  # /api/analysis/latest, /history
 ]
+
+
+from montalaq_project.health import healthz
